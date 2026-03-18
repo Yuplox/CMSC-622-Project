@@ -11,22 +11,22 @@ class SatelliteTopo(Topo):
         gateway = self.addHost('gs0')
         satellite = self.addSwitch('sat0')
 
-        self.addLink(satTerm1, satellite
+        self.addLink(satTerm1, satellite,
                      bw=bandwidth,
                      delay=delay,
                      loss=loss,
                      max_queue_size=1000,
                      use_htb=True)
 
-        self.addLink(satTerm2, satellite
+        self.addLink(satTerm2, satellite,
                      bw=bandwidth,
                      delay=delay,
                      loss=loss,
                      max_queue_size=1000,
                      use_htb=True)
 
-        self.addLink(gateway, satellite
-                     bw=mandwidth,
+        self.addLink(gateway, satellite,
+                     bw=bandwidth,
                      delay=delay,
                      loss=loss,
                      max_queue_size=1000,
