@@ -3,24 +3,23 @@ from mininet.link import TCLink
 from mininet.log import setLogLevel, info
 from mininet.cli import CLI
 from shared import SatelliteTopo
+import sys
 
-def main():
+def run(useCase):
     setLogLevel('info')
 
-    info('*** Instantiating Network\n')
     net = Mininet(topo=SatelliteTopo(10, 100, '250ms', 1), link=TCLink)
-
-    info('*** Starting Network\n')
     net.start()
 
-    info('*** Testing connectivity and latency\n')
-    net.pingAll()
+    if (useCase == '3.1'):
+        # Simulate use case 3.1;
+    elif (useCase == '3.2'):
+        # Simulate use case 3.2
 
-    info('*** Running CLI\n')
-    CLI(net)
-
-    info('*** Stopping Network\n')
     net.stop()
 
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) == 2 && (sys.argv[1] == '3.1' || sys.argv[1] == '3.2'):
+        run(sys.argv[1])
+    else:
+        print('Expected usage: run.py [USE_CASE]')
