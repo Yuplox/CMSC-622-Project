@@ -18,12 +18,16 @@ def run(useCase):
 
 
     if (useCase == '3.1'):
-        # Start use case 3.1 scripts in the background
-        server.cmd('python3 server31.py &')
-        termA.cmd('python3 terminal31.py &')
-        termB.cmd('python3 terminal31.py &')
+        server_ip = server.IP()
+        termA_ip = termA.IP()
+        termB_ip = termB.IP()
+
+        server.cmd(f'python3 -u server31.py {server_ip} > server.log 2>&1 &')
+        termA.cmd(f'python3 -u terminal31.py {server_ip} {termA_ip} "Hello from Terminal A! This is a test payload." > termA.log 2>&1 &')
+        termB.cmd(f'python3 -u terminal31.py {server_ip} {termB_ip} "Greetings from Terminal B! We are saving bandwidth." > termB.log 2>&1 &')
+
     elif (useCase == '3.2'):
-        # Simulate use case 3.2
+        print('3.2 is not implemented yet')
 
     # Start mininet command line
     CLI(net)

@@ -4,7 +4,9 @@ import time
 import struct
 from shared import xor_bytes
 
-def run_terminal(server_ip, server_port, msg):
+def run_terminal(server_ip, term_ip, msg):
+    server_port = 9000
+
     # Creat client socket
     send_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -25,7 +27,7 @@ def run_terminal(server_ip, server_port, msg):
     listen_socket.bind(('', multicast_port))
 
     # Join multicast group
-    mreq = struct.pack("4s4s", socket.inet_aton(multicast_address), socket.inet_aton('0.0.0.0'))
+    mreq = struct.pack("4s4s", socket.inet_aton(multicast_address), socket.inet_aton(term_ip))
     listen_socket.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
     
     listen_socket.settimeout(5.0)
@@ -34,7 +36,7 @@ def run_terminal(server_ip, server_port, msg):
         coded_data, addr = listen_socket.recvfrom(2048)
         print(f"Received multicast packet ({len(coded_data)} bytes) from {addr}.")
 
-        decoded_data = xor_bytes(coded_data, my_data)
+        decoded_data = xor_bytes(coded_data, data)
         decoded_string = decoded_data.decode('utf-8').rstrip('\x00')
         print(f"DECODED MESSAGE: '{decoded_string}'")
 
@@ -48,13 +50,14 @@ def run_terminal(server_ip, server_port, msg):
 
 if __name__ == '__main__':
     if len(sys.argv) < 3:
-        print("Usage: python3 terminal31.py [SERVER_IP] [MESSAGE]")
+        print("Usage: python3 terminal31.py [SERVER_IP] [TERMINAL_IP] [MESSAGE]")
         sys.exit(1)
     
     srv_ip = sys.argv[1]
-    msg = sys.argv[2]
+    term_ip = sys.argv[2]
+    msg = sys.argv[3]
 
     # Small delay to ensure server is fully spun up before terminals fire
     time.sleep(1) 
 
-    run_terminal(srv_ip, 9000, msg)
+    run_terminal(srv_ip, term_ip, msg)
