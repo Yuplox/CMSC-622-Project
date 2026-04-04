@@ -32,7 +32,7 @@ def run(useCase):
     net.stop()
 
 if __name__ == '__main__':
-    if len(sys.argv) == 2 and (sys.argv[1] == '3.1' || sys.argv[1] == '3.2'):
+    if len(sys.argv) == 2 and (sys.argv[1] == '3.1' or sys.argv[1] == '3.2'):
         run(sys.argv[1])
     else:
         print('Expected usage: run.py [USE_CASE]')
