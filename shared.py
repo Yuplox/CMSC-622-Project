@@ -1,7 +1,7 @@
 from mininet.topo import Topo
 
 class SatelliteTopo(Topo):
-    def build(self, bandwidth, feedBandwidth, delay, loss, termCount):
+    def build(self, bandwidth, feedBandwidth, delay, loss, termCount=2):
         terminals = []
         for i in range(termCount):
             terminals.append(self.addHost(f'term{i}'))
