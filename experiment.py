@@ -56,7 +56,7 @@ JAM_BW_USER    = 2      # Mbps  — heavily degraded user link
 JAM_LOSS       = 30     # %     — simulates severe RF interference
 
 # DDoS: attacker sends this many packets/second at the server
-DDOS_FLOOD_RATE = 500
+DDOS_FLOOD_RATE = 5000
 
 # Where each process writes its stats JSON
 STATS_DIR = '/tmp/satcom_stats'
@@ -312,12 +312,11 @@ def aggregate(server_stats, terminal_stats_list):
     bytes_sent      = total bytes on the wire (server sent + terminals sent)
     retransmissions = repair packets sent by server (or repair rounds for 3.1)
     mean_rtt_ms     = average across all terminals that have RTT samples
-    loss_rate       = average across terminals
+    loss_rate       = global calculation: total lost / total expected
     """
     total_bytes  = server_stats.get('bytes_sent', 0)
     total_rtx    = server_stats.get('retransmissions', 0)
     rtt_samples  = []
-    loss_rates   = []
     pkts_recv    = 0
     pkts_exp     = 0
 
@@ -326,29 +325,35 @@ def aggregate(server_stats, terminal_stats_list):
             continue
         total_bytes += ts.get('bytes_sent', 0)
         total_rtx   += ts.get('retransmissions', 0)
-        # pkts_received in metrics counts both data and repair packets; subtract
-        # retransmissions (repair packets received) so this column only reflects
-        # data packets and is directly comparable to pkts_expected.
+        
+        # Extract purely data packets
         data_pkts_recv = ts.get('pkts_received', 0) - ts.get('retransmissions', 0)
         pkts_recv   += max(0, data_pkts_recv)
         pkts_exp    += ts.get('pkts_expected', 0)
+        
         mean_rtt_ms = ts.get('mean_rtt_ms', 0.0)
         if ts.get('rtt_sample_count', 0) > 0:
             rtt_samples.append(mean_rtt_ms)
-        loss_rates.append(ts.get('loss_rate', 0.0))
 
-    mean_rtt  = sum(rtt_samples) / len(rtt_samples) if rtt_samples else 0.0
-    mean_loss = sum(loss_rates)  / len(loss_rates)  if loss_rates  else 0.0
+    mean_rtt = sum(rtt_samples) / len(rtt_samples) if rtt_samples else 0.0
+
+    # Calculate true global loss rate
+    if pkts_exp > 0:
+        lost = max(0, pkts_exp - pkts_recv)
+        global_loss_rate = lost / float(pkts_exp)
+    else:
+        # If expected is 0, it means no terminal received a single packet 
+        # to even establish a sequence number. This is total blackout.
+        global_loss_rate = 1.0
 
     return {
         'bytes_sent':      total_bytes,
         'retransmissions': total_rtx,
         'mean_rtt_ms':     mean_rtt,
-        'loss_rate':       mean_loss,
+        'loss_rate':       global_loss_rate,
         'pkts_received':   pkts_recv,
         'pkts_expected':   pkts_exp,
     }
-
 
 # ── Topology builder (adds optional attacker host) ─────────────────────────────
 

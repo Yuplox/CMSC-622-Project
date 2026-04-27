@@ -9,15 +9,15 @@ Tracked values
 ──────────────
   bytes_sent        total bytes sent over the wire (headers + payload)
   bytes_received    total bytes received over the wire
-  pkts_sent         total packets sent
-  pkts_received     total packets received
+  pkts_sent         total DATA packets sent
+  pkts_received     total DATA packets received
   pkts_expected     total packets the terminal expected to receive (seq-number-based)
   retransmissions   repair packets sent (server) / repair packets received (terminal)
   rtt_samples       list of one-way RTT samples in seconds (send-ts embedded in payload)
 
 Derived at report time
 ──────────────────────
-  loss_rate         = 1 - pkts_received / pkts_expected
+  loss_rate         = max(0, pkts_expected - pkts_received) / pkts_expected
   mean_rtt          = mean(rtt_samples)
 """
 
@@ -64,14 +64,14 @@ class Stats(object):
         # type: (int) -> None
         with self._lock:
             self.bytes_sent      += nbytes
-            self.pkts_sent       += 1
+            # Intentionally NOT incrementing self.pkts_sent to separate data from repair
             self.retransmissions += 1
 
     def record_repair_recv(self, nbytes):
         # type: (int) -> None
         with self._lock:
             self.bytes_received  += nbytes
-            self.pkts_received   += 1
+            # Intentionally NOT incrementing self.pkts_received to separate data from repair
             self.retransmissions += 1
 
     def record_expected(self, count=1):

@@ -54,11 +54,11 @@ def run_terminal(server_ip, term_ip, msg):
     listen_socket.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
     listen_socket.settimeout(5.0)
 
+    send_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    send_socket.bind((term_ip, 0))
+
     while time.time() < deadline:
         # ── Send ──────────────────────────────────────────────────────────────
-        send_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        send_socket.bind((term_ip, 0))
-
         send_ts = time.time()
         send_socket.sendto(data, (server_ip, server_port))
         stats.record_send(len(data))
