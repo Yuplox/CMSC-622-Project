@@ -1,6 +1,6 @@
 from mininet.net import Mininet
 from mininet.link import TCLink
-from mininet.log import setLogLevel, info
+from mininet.log import setLogLevel
 from mininet.cli import CLI
 from shared import SatelliteTopo
 import sys
@@ -8,35 +8,56 @@ import sys
 def run(useCase):
     setLogLevel('info')
 
-    net = Mininet(topo=SatelliteTopo(10, 100, '250ms', 1), link=TCLink)
+    terminalCount = 0
+    if useCase == '3.1':
+        terminalCount = 2
+    elif useCase == '3.2':
+        terminalCount = 10
+
+    net = Mininet(topo=SatelliteTopo(10, 100, '250ms', 1, terminalCount), link=TCLink)
     net.start()
 
-    # Get all hosts in topology
     server = net.get('ser0')
-    termA = net.get('term0')
-    termB = net.get('term1')
 
-
-    if (useCase == '3.1'):
+    if useCase == '3.1':
         server_ip = server.IP()
-        termA_ip = termA.IP()
-        termB_ip = termB.IP()
+
+        termA  = net.get('term0')
+        termB  = net.get('term1')
+        termA_ip  = termA.IP()
+        termB_ip  = termB.IP()
 
         server.cmd(f'python3 -u server31.py {server_ip} > server.log 2>&1 &')
-        termA.cmd(f'python3 -u terminal31.py {server_ip} {termA_ip} "Hello from Terminal A! This is a test payload." > termA.log 2>&1 &')
-        termB.cmd(f'python3 -u terminal31.py {server_ip} {termB_ip} "Greetings from Terminal B! We are saving bandwidth." > termB.log 2>&1 &')
+        termA.cmd(
+            f'python3 -u terminal31.py {server_ip} {termA_ip} '
+            f'"Hello from Terminal A! This is a test payload." > termA.log 2>&1 &'
+        )
+        termB.cmd(
+            f'python3 -u terminal31.py {server_ip} {termB_ip} '
+            f'"Greetings from Terminal B! We are saving bandwidth." > termB.log 2>&1 &'
+        )
 
-    elif (useCase == '3.2'):
-        print('3.2 is not implemented yet')
+    elif useCase == '3.2':
+        server_ip = server.IP()
 
-    # Start mininet command line
+        terminals = []
+        for i in range(terminalCount):
+            terminals.append(net.get(f'term{i}'))
+
+        # Args: SERVER_IP  TERMINAL_IP  NACK_INTERVAL  NACK_WINDOW  LABEL
+        server.cmd(f'python3 -u server32.py {server_ip} > server32.log 2>&1 &')
+
+        for term in terminals:
+            term.cmd(
+                f'python3 -u terminal32.py {server_ip} {term.IP()} '
+                f'2.0 32 termB > termB32.log 2>&1 &'
+            )
+
     CLI(net)
-
-    # Stop mininet after exiting command line
     net.stop()
 
 if __name__ == '__main__':
-    if len(sys.argv) == 2 and (sys.argv[1] == '3.1' or sys.argv[1] == '3.2'):
+    if len(sys.argv) == 2 and sys.argv[1] in ('3.1', '3.2'):
         run(sys.argv[1])
     else:
-        print('Expected usage: run.py [USE_CASE]')
+        print('Expected usage: run.py [USE_CASE]  (3.1 or 3.2)')

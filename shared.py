@@ -1,8 +1,11 @@
 from mininet.topo import Topo
 
 class SatelliteTopo(Topo):
-    def build(self, bandwidth, feedBandwidth, delay, loss):
-        satTerm1 = self.addHost('term0')
+    def build(self, bandwidth, feedBandwidth, delay, loss, termCount):
+        terminals = []
+        for i in range(termCount):
+            terminals.append(self.addHost(f'term{i}'))
+        
         satTerm2 = self.addHost('term1')
         server = self.addHost('ser0')
 
@@ -10,8 +13,8 @@ class SatelliteTopo(Topo):
         satellite = self.addSwitch('sat0')
 
         # Terminal to Satellite (User links)
-        self.addLink(satTerm1, satellite, bw=bandwidth, delay=delay, loss=loss, use_htb=True)
-        self.addLink(satTerm2, satellite, bw=bandwidth, delay=delay, loss=loss, use_htb=True)
+        for term in terminals:
+            self.addLink(term, satellite, bw=bandwidth, delay=delay, loss=loss, use_htb=True)
 
         # Satellite to Gateway (Feeder Link)
         self.addLink(satellite, gateway, bw=feedBandwidth, delay=delay, loss=loss, use_htb=True)
