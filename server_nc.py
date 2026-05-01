@@ -1,15 +1,3 @@
-"""
-server_nc.py — No-coding control baseline server.
-
-Listens on UDP port 9000 and echoes every packet back to the sender.
-No XOR, no multicast, no repair — purely measures raw wire cost without
-any network coding.
-
-Env vars:
-  STATS_FILE  path to write JSON stats on exit  (default /tmp/server_nc_stats.json)
-  DURATION    seconds to run  (default 30)
-"""
-
 import os
 import signal
 import socket
@@ -18,7 +6,7 @@ import time
 
 from metrics import Stats
 
-STATS_FILE = os.environ.get('STATS_FILE', '/tmp/server_nc_stats.json')
+STATS_FILE = os.environ.get('STATS_FILE', 'server_nc_stats.json')
 DURATION   = float(os.environ.get('DURATION', '30'))
 
 stats = Stats('server', 'server_nc')

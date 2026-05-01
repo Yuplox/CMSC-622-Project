@@ -1,97 +1,130 @@
-"""
-terminal31.py — Use Case 3.1 terminal, instrumented for experiments.
-
-Env vars:
-  STATS_FILE  path to write JSON stats (default /tmp/termX31_stats.json)
-  DURATION    seconds to run repeated send/receive cycles (default 30)
-  MSG         message to send each round (default hard-coded)
-"""
-
 import os
 import signal
 import socket
 import struct
 import sys
 import time
+from datetime import datetime
 
-from shared import xor_bytes
+from shared import *
 from metrics import Stats
 
-STATS_FILE = os.environ.get('STATS_FILE', '/tmp/term31_stats.json')
-DURATION   = float(os.environ.get('DURATION', '30'))
-LABEL      = os.environ.get('LABEL', 'term31')
+STATS_FILE = None
+stats = Stats('server', 'terminal31')
 
-stats = Stats('terminal', LABEL)
-
-
+# Ensure STATS_FILE is saved even when terminated early
 def shutdown(signum, frame):
-    stats.save(STATS_FILE)
+    if STATS_FILE is not None:
+        stats.save(STATS_FILE)
     sys.exit(0)
 
 
-def run_terminal(server_ip, term_ip, msg):
+def run_terminal(server_ip, term_ip, term_id, label="terminal31"):
     signal.signal(signal.SIGTERM, shutdown)
 
-    server_port       = 9000
-    multicast_address = '224.0.0.1'
-    multicast_port    = 10000
-
-    data = msg.encode('utf-8')
     deadline = time.time() + DURATION
     round_num = 0
+    
+    # Create listen socket and join multicast group
+    listen_socket = setup_socket('', MULTICAST_PORT)
+    setup_multicast_client(listen_socket, term_ip, MULTICAST_IP)
 
-    # Open and join the multicast group once, outside the loop.
-    # The server only fires a reply when it has received from *both* terminals,
-    # so the reply for round N may arrive while we're already in round N+1.
-    # A persistent socket buffers those replies; re-opening each round would
-    # drop them and produce artificially inflated RTT or timeouts.
-    listen_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listen_socket.bind(('', multicast_port))
-    mreq = struct.pack("4s4s",
-                       socket.inet_aton(multicast_address),
-                       socket.inet_aton(term_ip))
-    listen_socket.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-    listen_socket.settimeout(5.0)
+    # Create another socket to send data from
+    send_socket = setup_socket(term_ip, CLIENT_PORT)
 
-    send_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    send_socket.bind((term_ip, 0))
+    # Create terminal protocol instance to track sequence numbers
+    protocol = TerminalProtocol()
+
+    # Create sliding window instance to map sequence numbers to payloads
+    window = SlidingWindow(WINDOW_SIZE)
 
     while time.time() < deadline:
-        # ── Send ──────────────────────────────────────────────────────────────
-        send_ts = time.time()
-        send_socket.sendto(data, (server_ip, server_port))
-        stats.record_send(len(data))
+
+        # Create packet with random GPS coordinates in payload
+        # Header contains the sequence number for the packet
+        payload = GPSPayload.pack_data()
+        packet = protocol.pack_data(payload)
+        window.add(protocol.seq.curr_val(), payload)
+
+        # Send the packet
+        send_socket.sendto(packet, (server_ip, SERVER_PORT))
+
+        # Calculate stats
+        stats.record_send(len(packet))
         stats.record_expected(1)
 
-        # ── Listen for coded reply ─────────────────────────────────────────────
-        try:
-            wire, addr = listen_socket.recvfrom(2048)
-            rtt = time.time() - send_ts
-            stats.record_recv(len(wire))
-            stats.record_rtt(rtt)  # record_rtt stores seconds
+        # Check for coded packets
+        while(True):
+            try:
+                coded_packet, addr = listen_socket.recvfrom(BUFF_SIZE)
 
-            decoded = xor_bytes(wire, data).decode('utf-8', errors='replace').rstrip('\x00')
-            print("[{}] round={} rtt={:.1f}ms  decoded='{}'".format(
-                LABEL, round_num, rtt * 1000, decoded[:40]
-            ))
+                # Extract header info
+                seq_nums, coded_payload = ServerProtocol.unpack_data(coded_packet)
+                termA_seq_num, termB_seq_num = seq_nums
+                
+                # Swap sequence numbers if this is term1
+                if (term_id == "1"):
+                    termA_seq_num, termB_seq_num = termB_seq_num, termA_seq_num
+                
+                # Decode the payload
+                previous_payload = window.get_and_remove(termA_seq_num)
+                if previous_payload is None:
+                    print(f'[{label}-{term_id}] msg="Sequence number was missing from sliding window, so packet could not be decoded"')
+                    continue
 
-        except socket.timeout:
-            print("[{}] round={} timed out waiting for reply".format(LABEL, round_num))
+                decoded = xor_bytes(previous_payload, coded_payload)
+                lat, lon, timestamp = GPSPayload.unpack_data(decoded)
 
-        round_num += 1
-        time.sleep(1.0)   # pace rounds so server can keep up
+                # Calculate stats
+                rtt = time.time() - timestamp
+                stats.record_recv(len(coded_packet))
+                stats.record_rtt(rtt)
+
+                # Print the decoded payload
+                print(f"[{label}-{term_id}] seq={termB_seq_num} rtt={rtt * 1000}ms  lat={lat} lon={lon} time={datetime.fromtimestamp(timestamp)}")
+
+            except socket.timeout:
+                break
+        
+        # Check for any packets that failed to get coded
+        while(True):
+            try:
+                not_coded_packet, addr = send_socket.recvfrom(BUFF_SIZE)
+
+                # Extract header info and payload
+                seq_num, not_coded_payload = TerminalProtocol.unpack_data(not_coded_packet)
+                lat, lon, timestamp = GPSPayload.unpack_data(not_coded_payload)
+
+                # Calculate stats
+                rtt = time.time() - timestamp
+                stats.record_recv(len(not_coded_payload))
+                stats.record_rtt(rtt)
+
+                # Print the decoded payload
+                print(f'[{label}-{term_id}] msg="Non-coded packet received" seq={seq_num} rtt={rtt * 1000}ms  lat={lat} lon={lon} time={datetime.fromtimestamp(timestamp)}')
+
+            except socket.timeout:
+                break
+
+        time.sleep(0.25) # Wait 250ms between sending packets
 
     send_socket.close()
     listen_socket.close()
-    print("[{}] Duration elapsed, shutting down.".format(LABEL))
-    stats.save(STATS_FILE)
+    print(f"[{label}-{term_id}] Duration elapsed, shutting down.")
+
+    if STATS_FILE is not None:
+        stats.save(STATS_FILE)
+    sys.exit(0)
 
 
 if __name__ == '__main__':
     if len(sys.argv) < 4:
-        print("Usage: python3 terminal31.py SERVER_IP TERMINAL_IP MESSAGE")
+        print("Usage: python3 terminal31.py SERVER_IP TERMINAL_IP TERMINAL_ID")
         sys.exit(1)
 
-    time.sleep(1)   # wait for server
+    # Check for optional stats file
+    if len(sys.argv) == 5:
+        STATS_FILE = sys.argv[4]
+
+    time.sleep(0.1) # Wait 100ms for server to initialize
     run_terminal(sys.argv[1], sys.argv[2], sys.argv[3])

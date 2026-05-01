@@ -1,11 +1,3 @@
-"""
-server32.py — Use Case 3.2 Reliable Multicast server, instrumented for experiments.
-
-Env vars:
-  STATS_FILE  path to write JSON stats on exit  (default /tmp/server32_stats.json)
-  DURATION    seconds to run before self-terminating  (default 30)
-"""
-
 import os
 import signal
 import socket
@@ -29,7 +21,7 @@ NACK_AGGREGATION = 1.0
 WINDOW_SIZE      = 64
 
 # ── Config from env ────────────────────────────────────────────────────────────
-STATS_FILE = os.environ.get('STATS_FILE', '/tmp/server32_stats.json')
+STATS_FILE = os.environ.get('STATS_FILE', 'server32_stats.json')
 DURATION   = float(os.environ.get('DURATION', '30'))
 
 # ── Shared state ───────────────────────────────────────────────────────────────

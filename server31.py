@@ -1,83 +1,100 @@
-"""
-server31.py — Use Case 3.1 Two-Way Relay server, instrumented for experiments.
-
-Accepts STATS_FILE env var — path where JSON stats are written on SIGTERM/exit.
-Also accepts DURATION env var — seconds to run before self-terminating.
-"""
-
 import os
 import signal
 import socket
 import struct
 import sys
 import time
+from collections import deque 
 
-from shared import xor_bytes
+from shared import *
 from metrics import Stats
 
-STATS_FILE = os.environ.get('STATS_FILE', '/tmp/server31_stats.json')
-DURATION   = float(os.environ.get('DURATION', '30'))
-
+STATS_FILE = None
 stats = Stats('server', 'server31')
 
-
+# Ensure STATS_FILE is saved even when terminated early
 def shutdown(signum, frame):
-    stats.save(STATS_FILE)
+    if STATS_FILE is not None:
+        stats.save(STATS_FILE)
     sys.exit(0)
 
 
-def run_server(host='0.0.0.0', port=9000):
+def run_server(server_ip, terminals, label="server31"):
     signal.signal(signal.SIGTERM, shutdown)
 
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    server_socket.bind((host, port))
-    server_socket.settimeout(1.0)
+    terminals = terminals_to_dict(terminals)
 
-    # Multicast setup
-    server_socket.setsockopt(
-        socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(host)
-    )
-    server_socket.setsockopt(
-        socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, struct.pack('b', 4)
-    )
+    # Setup up multicast server socket
+    server_socket = setup_socket(server_ip, SERVER_PORT)
+    setup_multicast_server(server_socket)
 
-    multicast_group = ('224.0.0.1', 10000)
-    print("[server31] Listening on {}:{} (duration={}s)".format(host, port, DURATION))
+    print(f"[{label}] Listening on {server_ip}:{SERVER_PORT} (duration={DURATION}s)")
 
     clients = {}
     deadline = time.time() + DURATION
-
     while time.time() < deadline:
         try:
-            data, addr = server_socket.recvfrom(2048)
+            # Receive packets from terminals first
+            packet, addr = server_socket.recvfrom(BUFF_SIZE)
+            stats.record_recv(len(packet))
+            print(f"[server31] Received {len(packet)} bytes from {addr}")
+
+            # Create queue for new clients
+            ip, _ = addr
+            if (ip not in clients):
+                clients[ip] = deque()
+
+            # Add tuple to client's queue with time received and data
+            clients[ip].append((time.time(), packet))
+
         except socket.timeout:
-            continue
+            pass
 
-        nbytes = len(data)
-        stats.record_recv(nbytes)
-        print("[server31] Received {} bytes from {}".format(nbytes, addr))
+        addresses = clients.keys()
+        if len(addresses) == 2:
 
-        clients[addr] = data
+            # Maps terminal IDs to their corresponding addresses
+            addr_A = terminals["0"]
+            addr_B = terminals["1"]
 
-        if len(clients) == 2:
-            addresses    = list(clients.keys())
-            payload_A    = clients[addresses[0]]
-            payload_B    = clients[addresses[1]]
-            combined     = xor_bytes(payload_A, payload_B)
+            # If we have packets from two terminals we will XOR them
+            while clients[addr_A] and clients[addr_B]:
+                _, packet_A = clients[addr_A].popleft()
+                _, packet_B = clients[addr_B].popleft()
+                
+                # Extract header data from packets
+                seq_num_A, payload_A = TerminalProtocol.unpack_data(packet_A)
+                seq_num_B, payload_B = TerminalProtocol.unpack_data(packet_B)
 
-            server_socket.sendto(combined, multicast_group)
-            stats.record_repair_sent(len(combined))
-            print("[server31] XOR'd and broadcast {} bytes".format(len(combined)))
+                # XOR payloads and create new header
+                combined_payload = xor_bytes(payload_A, payload_B)
+                combined_packet = ServerProtocol.pack_data((seq_num_A, seq_num_B), combined_payload)
+                
+                # Broadcast the combined packet
+                server_socket.sendto(combined_packet, MULTICAST_GROUP)
+                stats.record_repair_sent(len(combined_packet))
+                print(f"[{label}] XOR'd and broadcast {len(combined_packet)} bytes")
 
-            clients.clear()
+            # Handle any assymetric traffic due to packet loss
+            current_time = time.time()
+            for addr, queue in clients.items():
+                while queue and (current_time - queue[0][0]) > MAX_HOLD_TIME:
+                    _, packet = queue.popleft()
+                    
+                    # Send packet directly to the other terminal
+                    other_addr = [a for a in addresses if a != addr][0]
+                    dest = (other_addr, CLIENT_PORT)
+                    server_socket.sendto(packet, dest)
 
-    print("[server31] Duration elapsed, shutting down.")
+                    print(f"[{label}] Timeout: Sent {len(packet)} bytes uncoded from {addr}")
+
+    print(f"[{label}] Duration elapsed, shutting down.")
     stats.save(STATS_FILE)
     server_socket.close()
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("Usage: python3 server31.py [SERVER_IP]")
+    if len(sys.argv) < 3:
+        print("Usage: python3 server31.py SERVER_IP [LIST_OF_TERMINALS]")
         sys.exit(1)
-    run_server(sys.argv[1])
+    run_server(sys.argv[1], sys.argv[2:])

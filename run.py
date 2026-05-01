@@ -27,15 +27,10 @@ def run(useCase):
         termA_ip  = termA.IP()
         termB_ip  = termB.IP()
 
-        server.cmd(f'python3 -u server31.py {server_ip} > server31.log 2>&1 &')
-        termA.cmd(
-            f'python3 -u terminal31.py {server_ip} {termA_ip} '
-            f'"Hello from Terminal A! This is a test payload." > term-A-31.log 2>&1 &'
-        )
-        termB.cmd(
-            f'python3 -u terminal31.py {server_ip} {termB_ip} '
-            f'"Greetings from Terminal B! We are saving bandwidth." > term-B-31.log 2>&1 &'
-        )
+        server.cmd(f'python3 -u server31.py {server_ip} {termA_ip}:0 {termB_ip}:1 > server31.log 2>&1 &')
+        termA.cmd(f'python3 -u terminal31.py {server_ip} {termA_ip} 0 > term-A-31.log 2>&1 &')
+        termB.cmd(f'python3 -u terminal31.py {server_ip} {termB_ip} 1 > term-B-31.log 2>&1 &')
+
 
     elif useCase == '3.2':
         server_ip = server.IP()
