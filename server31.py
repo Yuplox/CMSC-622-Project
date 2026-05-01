@@ -88,9 +88,13 @@ def run_server(server_ip, terminals, label="server31"):
 
                     print(f"[{label}] Timeout: Sent {len(packet)} bytes uncoded from {addr}")
 
-    print(f"[{label}] Duration elapsed, shutting down.")
-    stats.save(STATS_FILE)
     server_socket.close()
+    print(f"[{label}] Duration elapsed, shutting down.")
+
+    if STATS_FILE is not None:
+        stats.save(STATS_FILE)
+    sys.exit(0)
+    
 
 
 if __name__ == '__main__':
