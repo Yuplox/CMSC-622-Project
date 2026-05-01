@@ -91,7 +91,7 @@ class TerminalProtocol:
         payload = packet[TerminalProtocol.HEADER_SIZE:]
         
         # Get the sequence number from the packet
-        seq_num = struct.unpack(TerminalProtocol.HEADER_FORMAT, header_bytes)
+        seq_num, = struct.unpack(TerminalProtocol.HEADER_FORMAT, header_bytes)
         return seq_num, payload
 
 # Contains the sequence numbers of the two packets that were combined (3.1)
