@@ -41,7 +41,7 @@ def run_terminal(server_ip, term_ip, term_id, label="terminal31"):
         # Create packet with random GPS coordinates in payload
         # Header contains the sequence number for the packet
         payload = GPSPayload.pack_data()
-        packet = protocol.pack_data(MSG_DATA, payload)
+        packet = protocol.pack_data(payload)
         window.add(protocol.seq.curr_val(), payload)
 
         # Send the packet

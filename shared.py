@@ -82,7 +82,7 @@ class TerminalProtocol:
 
     def pack_data(self, payload: bytes) -> bytes:
         seq_num = self.seq.next_val()
-        header = struct.pack(TerminalProtocol.HEADER_FORMAT, message_type, seq_num)
+        header = struct.pack(TerminalProtocol.HEADER_FORMAT, seq_num)
         return header + payload
 
     @staticmethod

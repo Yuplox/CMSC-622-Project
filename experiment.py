@@ -1,31 +1,3 @@
-"""
-experiment.py — Automated experiment runner for SatCom network coding evaluation.
-
-Runs all 9 combinations of:
-  Scenario  x  Use Case
-  ────────────────────────────────────────────────────────────────────
-  control       baseline link parameters (1% loss, 10 Mbps user link)
-  jamming       high loss + reduced bandwidth (30% loss, 2 Mbps)
-  ddos          attacker host floods server during the experiment
-  ────────────────────────────────────────────────────────────────────
-  control_nc    no network coding — terminals send/receive independently
-  use_case_31   Use Case 3.1  Two-Way Relay (XOR coding)
-  use_case_32   Use Case 3.2  Reliable Multicast (GF(2^8) linear coding)
-
-For each combination it:
-  1. Builds a fresh Mininet topology with the scenario's link parameters
-  2. Launches the appropriate server + terminals (+ attacker for DDoS)
-  3. Waits for DURATION seconds
-  4. Reads JSON stats files written by each process
-  5. Aggregates metrics across terminals
-
-After all 9 runs it writes results.csv and prints a formatted table.
-
-Usage
-─────
-  sudo python3 experiment.py [--duration SECONDS] [--out results.csv]
-"""
-
 import argparse
 import csv
 import json
