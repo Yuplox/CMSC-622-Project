@@ -20,8 +20,9 @@ RESPONSE_TIMEOUT = 2    # The rtt is about 1 second so responses should be recei
 BUFF_SIZE = 1024        # Packets should never be larger than 1024 bytes
 DURATION = 30           # Each simulation lasts 30 seconds
 WINDOW_SIZE = 50        # Keep the last 50 payloads for network coding
-MSG_REG = 1             # Identifies a registration packet
-MSG_REG_ACK = 2         # Identifies a registration acknowledgment packet
+MSG_DATA = 1            # Identifies a packet as non-coded
+MSG_CODED = 2           # Identifies a packet as coded
+MSG_NACK = 3            # Identifies a NACK packet
 MAX_HOLD_TIME = 0.05    # Max time to keep packets in the coding queue
 SLEEP_INTERVAL = 0.25   # Time between sending packets
 
@@ -62,15 +63,15 @@ class Sequence:
 
 
 class TerminalProtocol:
-    HEADER_FORMAT = '!I'
+    HEADER_FORMAT = '!BI'
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 
     def __init__(self):
         self.seq = Sequence()
 
-    def pack_data(self, payload: bytes) -> bytes:
+    def pack_data(self, message_type, payload: bytes) -> bytes:
         seq_num = self.seq.next_val()
-        header = struct.pack(TerminalProtocol.HEADER_FORMAT, seq_num)
+        header = struct.pack(TerminalProtocol.HEADER_FORMAT, message_type, seq_num)
         return header + payload
 
     def unpack_data(packet: bytes):
@@ -78,8 +79,8 @@ class TerminalProtocol:
         payload = packet[TerminalProtocol.HEADER_SIZE:]
         
         # Get the sequence number from the packet
-        seq_num = struct.unpack(TerminalProtocol.HEADER_FORMAT, header_bytes)[0]
-        return seq_num, payload
+        message_type, seq_num = struct.unpack(TerminalProtocol.HEADER_FORMAT, header_bytes)
+        return message_type, seq_num, payload
 
 
 class ServerProtocol:

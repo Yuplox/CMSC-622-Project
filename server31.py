@@ -63,8 +63,8 @@ def run_server(server_ip, terminals, label="server31"):
                 _, packet_B = clients[addr_B].popleft()
                 
                 # Extract header data from packets
-                seq_num_A, payload_A = TerminalProtocol.unpack_data(packet_A)
-                seq_num_B, payload_B = TerminalProtocol.unpack_data(packet_B)
+                _, seq_num_A, payload_A = TerminalProtocol.unpack_data(packet_A)
+                _, seq_num_B, payload_B = TerminalProtocol.unpack_data(packet_B)
 
                 # XOR payloads and create new header
                 combined_payload = xor_bytes(payload_A, payload_B)

@@ -21,9 +21,6 @@ def shutdown(signum, frame):
 
 def run_terminal(server_ip, term_ip, term_id, label="terminal31"):
     signal.signal(signal.SIGTERM, shutdown)
-
-    deadline = time.time() + DURATION
-    round_num = 0
     
     # Create listen socket and join multicast group
     listen_socket = setup_socket('', MULTICAST_PORT)
@@ -38,12 +35,13 @@ def run_terminal(server_ip, term_ip, term_id, label="terminal31"):
     # Create sliding window instance to map sequence numbers to payloads
     window = SlidingWindow(WINDOW_SIZE)
 
+    deadline = time.time() + DURATION
     while time.time() < deadline:
 
         # Create packet with random GPS coordinates in payload
         # Header contains the sequence number for the packet
         payload = GPSPayload.pack_data()
-        packet = protocol.pack_data(payload)
+        packet = protocol.pack_data(MSG_DATA, payload)
         window.add(protocol.seq.curr_val(), payload)
 
         # Send the packet
@@ -92,7 +90,7 @@ def run_terminal(server_ip, term_ip, term_id, label="terminal31"):
                 not_coded_packet, addr = send_socket.recvfrom(BUFF_SIZE)
 
                 # Extract header info and payload
-                seq_num, not_coded_payload = TerminalProtocol.unpack_data(not_coded_packet)
+                _, seq_num, not_coded_payload = TerminalProtocol.unpack_data(not_coded_packet)
                 lat, lon, timestamp = GPSPayload.unpack_data(not_coded_payload)
 
                 # Calculate stats
@@ -106,7 +104,7 @@ def run_terminal(server_ip, term_ip, term_id, label="terminal31"):
             except socket.timeout:
                 break
 
-        time.sleep(0.25) # Wait 250ms between sending packets
+        time.sleep(SLEEP_INTERVAL)
 
     send_socket.close()
     listen_socket.close()
