@@ -5,28 +5,22 @@ import struct
 import sys
 import threading
 import time
-from collections import OrderedDict
 
+from shared import *
 from gf256 import gf_encode
 from metrics import Stats
 
-# ── Network constants ──────────────────────────────────────────────────────────
-MULTICAST_GROUP  = ('224.0.0.1', 10000)
-NACK_PORT        = 9001
+
 REPAIR_MAGIC     = 0xFFFFFFFF
+STATS_FILE = None
 
-# ── Tuning knobs ───────────────────────────────────────────────────────────────
-STREAM_INTERVAL  = 0.5
+
 NACK_AGGREGATION = 1.0
-WINDOW_SIZE      = 64
 
-# ── Config from env ────────────────────────────────────────────────────────────
-STATS_FILE = os.environ.get('STATS_FILE', 'server32_stats.json')
-DURATION   = float(os.environ.get('DURATION', '30'))
 
-# ── Shared state ───────────────────────────────────────────────────────────────
+# Shared variables
 window_lock   = threading.Lock()
-packet_window = OrderedDict()
+packet_window = SlidingWindow()
 stats         = Stats('server', 'server32')
 stop_event    = threading.Event()
 
@@ -43,79 +37,42 @@ def random_nonzero_coeff():
             return b
 
 
-def pad_to(data, length):
-    # type: (bytes, int) -> bytes
-    return data.ljust(length, b'\x00')
-
-
-def make_mcast_socket(server_ip):
-    # type: (str) -> socket.socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((server_ip, 0))
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF,
-                    socket.inet_aton(server_ip))
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL,
-                    struct.pack('b', 4))
-    return sock
-
-
-# ── Stream thread ──────────────────────────────────────────────────────────────
-
 class StreamThread(threading.Thread):
-    CORPUS = [
-        b"The quick brown fox jumps over the lazy dog near the riverbank.",
-        b"Pack my box with five dozen liquor jugs for the celebration now.",
-        b"How vexingly quick daft zebras jump over the wooden fence today.",
-        b"The five boxing wizards jump quickly past the startled audience.",
-        b"Sphinx of black quartz, judge my vow under the pale moonlight!!",
-        b"Jackdaws love my big sphinx of quartz sitting on the hilltop up.",
-        b"The jay, pig, fox, zebra and my wolves quack in the cold fog up.",
-        b"Blowzy red vixens fight for a quick jump over the white fence!!.",
-    ]
-    PKT_LEN = max(len(s) for s in CORPUS)
-
     def __init__(self, sock):
         super(StreamThread, self).__init__()
         self.daemon = True
-        self.sock   = sock
-        self.seq    = 0
+        self.sock = sock
+        self.protocol = TerminalProtocol()
 
     def run(self):
         print("[stream] Starting data stream...")
         while not stop_event.is_set():
-            payload = pad_to(self.CORPUS[self.seq % len(self.CORPUS)], self.PKT_LEN)
+
+            # Create packet with GPS data
+            payload = GPSPayload.pack_data()
+            packet = protocol.pack_data(MSG_DATA, payload)
+            seq_num = protocol.seq.curr_val()
 
             with window_lock:
-                packet_window[self.seq] = payload
-                if len(packet_window) > WINDOW_SIZE:
-                    packet_window.popitem(last=False)
+                packet_window.add(seq_num, payload)
 
-            wire = struct.pack('!II', self.seq, len(payload)) + payload
+            # Send packet to multicast group
             try:
-                self.sock.sendto(wire, MULTICAST_GROUP)
-                stats.record_send(len(wire))
-                print("[stream] seq={:4d}  '{}'".format(
-                    self.seq, payload.rstrip(b'\x00').decode()[:40]
-                ))
+                self.sock.sendto(packet, MULTICAST_GROUP)
+                stats.record_send(len(packet))
+                print(f"[stream] sent {len(packet)} bytes to {MULTICAST_GROUP}")
             except OSError as e:
-                print("[stream] sendto error (seq={}): {}".format(self.seq, e))
+                print(f"[stream] sendto error (seq={seq_num}): {e}")
 
-            self.seq += 1
-            time.sleep(STREAM_INTERVAL)
+            time.sleep(SLEEP_INTERVAL)
 
-
-# ── Repair thread ──────────────────────────────────────────────────────────────
 
 class RepairThread(threading.Thread):
-    def __init__(self, mcast_sock, server_ip):
+    def __init__(self, server_sock, nack_sock):
         super(RepairThread, self).__init__()
-        self.daemon     = True
-        self.mcast_sock = mcast_sock
-
-        self.nack_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.nack_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.nack_sock.bind((server_ip, NACK_PORT))
-        self.nack_sock.settimeout(NACK_AGGREGATION)
+        self.daemon = True
+        self.server_sock = server_sock
+        self.nack_sock = nack_sock
 
     def run(self):
         print("[repair] Listening for NACKs on port {}...".format(NACK_PORT))
@@ -125,10 +82,10 @@ class RepairThread(threading.Thread):
             deadline = time.time() + NACK_AGGREGATION
             while time.time() < deadline:
                 try:
-                    raw, addr = self.nack_sock.recvfrom(4096)
-                    # NACK bytes are counted as received control traffic
-                    stats.record_recv(len(raw))
-                    count = len(raw) // 4
+                    nack, addr = self.nack_sock.recvfrom(BUFF_SIZE)
+                    
+                    stats.record_recv(len(nack))
+                    count = len(nack) // 4
                     seqs  = list(struct.unpack('!{}I'.format(count), raw[:count * 4]))
                     print("[repair] NACK from {}: missing seqs {}".format(addr, seqs))
                     pending.update(seqs)
@@ -178,24 +135,36 @@ class RepairThread(threading.Thread):
             pending.clear()
 
 
-# ── Entry point ────────────────────────────────────────────────────────────────
-
-def run_server(server_ip):
-    # type: (str) -> None
+def run_server(server_ip, lable="server32"):
     signal.signal(signal.SIGTERM, shutdown)
-    print("[server32] Starting on {} (duration={}s)".format(server_ip, DURATION))
 
-    mcast_sock = make_mcast_socket(server_ip)
+    print(f"[{label}] starting on {server_ip} (duration={DURATION}s)")
 
-    StreamThread(mcast_sock).start()
-    RepairThread(mcast_sock, server_ip).start()
+    # Create server socket
+    server_sock = setup_socket(server_ip, SERVER_PORT)
+    setup_multicast_server(server_sock)
 
+    # Create socket to receive NACKs
+    nack_sock = setup_socket(server_ip, SERVER_NACK_PORT)
+
+    # Create threads
+    StreamThread(server_sock).start()
+    RepairThread(server_sock, nack_sock).start()
+
+    # Set stop flag after duaration elapses
     stop_event.wait(DURATION)
     stop_event.set()
 
-    print("[server32] Duration elapsed, saving stats.")
-    stats.save(STATS_FILE)
-    mcast_sock.close()
+    # Wait for threads to complete before closing sockets
+    time.sleep(0.1)
+    server_sock.close()
+    nack_sock.close()
+
+    print(f"[{label}] Duration elapsed, saving stats.")
+
+    if STATS_FILE is not None:
+        stats.save(STATS_FILE)
+    sys.exit(0)
 
 
 if __name__ == '__main__':

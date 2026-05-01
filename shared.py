@@ -61,15 +61,15 @@ class Sequence:
     def curr_val(self):
         return self._seq_num
 
-
+# Contains a single sequence number from the sending terminal
 class TerminalProtocol:
-    HEADER_FORMAT = '!BI'
+    HEADER_FORMAT = '!I'
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 
     def __init__(self):
         self.seq = Sequence()
 
-    def pack_data(self, message_type, payload: bytes) -> bytes:
+    def pack_data(self, payload: bytes) -> bytes:
         seq_num = self.seq.next_val()
         header = struct.pack(TerminalProtocol.HEADER_FORMAT, message_type, seq_num)
         return header + payload
@@ -79,10 +79,10 @@ class TerminalProtocol:
         payload = packet[TerminalProtocol.HEADER_SIZE:]
         
         # Get the sequence number from the packet
-        message_type, seq_num = struct.unpack(TerminalProtocol.HEADER_FORMAT, header_bytes)
-        return message_type, seq_num, payload
+        seq_num = struct.unpack(TerminalProtocol.HEADER_FORMAT, header_bytes)
+        return seq_num, payload
 
-
+# Contains the sequence numbers of the two packets that were combined
 class ServerProtocol:
     HEADER_FORMAT = '!II'
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
@@ -98,6 +98,25 @@ class ServerProtocol:
         # Get the sequence number from the packet
         seq_nums = struct.unpack(ServerProtocol.HEADER_FORMAT, header_bytes)
         return seq_nums, payload
+
+# Contains a variable number of sequence numbers
+class CodingProtocol:
+    HEADER_FORMAT = '!BI'
+
+    def pack_data(count: int, recipes: list, payload: bytes) -> bytes:
+        outer_prefix = struct.pack(CodingProtocol.HEADER_FORMAT, MSG_CODED, count)
+        recursively_packed_data = CodingProtocol.recursive_header(count, recipes, payload)
+        return outer_prefix + recursively_packed_data
+
+    def recursive_pack(count: int, recipes: list, payload: bytes) -> bytes:
+        if count <= 0 or not recipes:
+            return payload
+            
+        coeff, seq_id = recipes[0]
+        current_header = struct.pack(CodingProtocol.HEADER_FORMAT, coeff, seq_id)
+
+        return current_header + CodingProtocol.recursive_header(count - 1, recipes[1:], payload)    
+
 
 class GPSPayload:
     PAYLOAD_FORMAT = '!ffd'
