@@ -1,83 +1,84 @@
-"""
-terminal_nc.py — No-coding control baseline terminal.
-
-Repeatedly sends a UDP message to the server and waits for the echo reply.
-Measures RTT and loss without any network coding, providing the baseline
-against which Use Cases 3.1 and 3.2 are compared.
-
-Env vars:
-  STATS_FILE  path to write JSON stats on exit  (default /tmp/term_nc_stats.json)
-  DURATION    seconds to run  (default 30)
-  LABEL       log/stats label  (default 'term_nc')
-"""
-
 import os
 import signal
 import socket
 import sys
 import time
 
+from shared import *
 from metrics import Stats
 
-STATS_FILE = os.environ.get('STATS_FILE', '/tmp/term_nc_stats.json')
-DURATION   = float(os.environ.get('DURATION', '30'))
-LABEL      = os.environ.get('LABEL', 'term_nc')
+STATS_FILE = None
 
-stats = Stats('terminal', LABEL)
+stats = Stats('terminal', "term_nc")
 
 
+# Ensure STATS_FILE is saved even when terminated early
 def shutdown(signum, frame):
-    stats.save(STATS_FILE)
+    if STATS_FILE is not None:
+        stats.save(STATS_FILE)
     sys.exit(0)
 
 
-def run_terminal(server_ip, term_ip, msg):
+def run_terminal(termA_ip, termB_ip, term_id, label="term_nc"):
     signal.signal(signal.SIGTERM, shutdown)
 
-    server_port = 9000
+    # Create socket for both sending and receiving
+    sock = setup_socket(termA_ip, CLIENT_PORT)
 
-    # Single socket for both send and receive: the server echoes to the source
-    # port of each packet, so send and recv must share the same bound port.
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((term_ip, 0))   # let OS pick an ephemeral port
-    sock.settimeout(5.0)
-
-    data      = msg.encode('utf-8')
-    deadline  = time.time() + DURATION
-    round_num = 0
-
-    print("[{}] Starting (server={}:{} duration={}s)".format(
-        LABEL, server_ip, server_port, DURATION))
+    print(f"[{label}] Starting no coding terminal (duration={DURATION}s)")
 
     while time.time() < deadline:
-        send_ts = time.time()
-        sock.sendto(data, (server_ip, server_port))
-        stats.record_send(len(data))
+
+        # Create packet with random GPS coordinates in payload
+        # Header contains the sequence number for the packet
+        payload = GPSPayload.pack_data()
+        packet = protocol.pack_data(payload)
+        window.add(protocol.seq.curr_val(), payload)
+
+        # Send the packet
+        sock.sendto(packet, (termB_IP, CLIENT_PORT))
+
+        # Calculate stats
+        stats.record_send(len(packet))
         stats.record_expected(1)
+        
+        # Check for packets
+        while(True):
+            try:
+                not_coded_packet, addr = sock.recvfrom(BUFF_SIZE)
 
-        try:
-            echo, addr = sock.recvfrom(4096)
-            rtt = time.time() - send_ts
-            stats.record_recv(len(echo))
-            stats.record_rtt(rtt)
-            print("[{}] round={} RTT={:.3f}s  echo='{}'".format(
-                LABEL, round_num, rtt, echo.decode('utf-8', errors='replace')[:40]
-            ))
-        except socket.timeout:
-            print("[{}] round={} timed out".format(LABEL, round_num))
+                # Extract header info and payload
+                seq_num, not_coded_payload = TerminalProtocol.unpack_data(not_coded_packet)
+                lat, lon, timestamp = GPSPayload.unpack_data(not_coded_payload)
 
-        round_num += 1
-        time.sleep(1.0)
+                # Calculate stats
+                rtt = time.time() - timestamp
+                stats.record_recv(len(not_coded_payload))
+                stats.record_rtt(rtt)
 
-    print("[{}] Duration elapsed, shutting down.".format(LABEL))
-    stats.save(STATS_FILE)
-    sock.close()
+                # Print the decoded payload
+                print(f'[{label}-{term_id}] seq={seq_num} rtt={rtt * 1000}ms  lat={lat} lon={lon} time={datetime.fromtimestamp(timestamp)}')
+
+            except socket.timeout:
+                break
+
+        time.sleep(SLEEP_INTERVAL)
+
+    print("[{}] Duration elapsed, shutting down.")
+
+    if STATS_FILE is not None:
+        stats.save(STATS_FILE)
+    sys.exit(0)
 
 
 if __name__ == '__main__':
     if len(sys.argv) < 4:
-        print("Usage: python3 terminal_nc.py SERVER_IP TERMINAL_IP MESSAGE")
+        print("Usage: python3 terminal_nc.py TERMA_IP TERMB_IP TERMINAL_ID")
         sys.exit(1)
-    time.sleep(1)  # wait for server to bind
+
+    # Check for optional stats file
+    if len(sys.argv) == 5:
+        STATS_FILE = sys.argv[4]
+
+    time.sleep(0.1) # Wait 100ms for server to initialize
     run_terminal(sys.argv[1], sys.argv[2], sys.argv[3])

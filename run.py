@@ -19,7 +19,17 @@ def run(useCase):
 
     server = net.get('ser0')
 
-    if useCase == '3.1':
+    if useCase == 'nc':
+        termA = net.get('term0')
+        termB = net.get('term1')
+        termA_ip  = termA.IP()
+        termB_ip  = termB.IP()
+
+        termA.cmd(f'python3 -u terminal_nc.py {termA_ip} {termB_ip} 0 > term_nc_A.log 2>&1 &')
+        termB.cmd(f'python3 -u terminal_nc.py {termB_ip} {termA_ip} 0 > term_nc_B.log 2>&1 &')
+        
+
+    elif useCase == '3.1':
         server_ip = server.IP()
 
         termA  = net.get('term0')
@@ -28,8 +38,8 @@ def run(useCase):
         termB_ip  = termB.IP()
 
         server.cmd(f'python3 -u server31.py {server_ip} {termA_ip}:0 {termB_ip}:1 > server31.log 2>&1 &')
-        termA.cmd(f'python3 -u terminal31.py {server_ip} {termA_ip} 0 > term-A-31.log 2>&1 &')
-        termB.cmd(f'python3 -u terminal31.py {server_ip} {termB_ip} 1 > term-B-31.log 2>&1 &')
+        termA.cmd(f'python3 -u terminal31.py {server_ip} {termA_ip} 0 > term31_A.log 2>&1 &')
+        termB.cmd(f'python3 -u terminal31.py {server_ip} {termB_ip} 1 > term31_B.log 2>&1 &')
 
 
     elif useCase == '3.2':
@@ -55,7 +65,7 @@ def run(useCase):
     net.stop()
 
 if __name__ == '__main__':
-    if len(sys.argv) == 2 and sys.argv[1] in ('3.1', '3.2'):
+    if len(sys.argv) == 2 and sys.argv[1] in ('nc', '3.1', '3.2'):
         run(sys.argv[1])
     else:
-        print('Expected usage: run.py [USE_CASE]  (3.1 or 3.2)')
+        print('Expected usage: run.py [USE_CASE]  (nc, 3.1, or 3.2)')
