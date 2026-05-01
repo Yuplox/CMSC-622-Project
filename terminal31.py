@@ -63,26 +63,17 @@ def run_terminal(server_ip, term_ip, msg):
         send_socket.sendto(data, (server_ip, server_port))
         stats.record_send(len(data))
         stats.record_expected(1)
-        send_socket.close()
 
         # ── Listen for coded reply ─────────────────────────────────────────────
         try:
             wire, addr = listen_socket.recvfrom(2048)
-            recv_ts = time.time()
-
-            # First 8 bytes are the server's send timestamp (big-endian double)
-            if len(wire) < 8:
-                raise ValueError("Multicast packet too short")
-            server_ts = struct.unpack('!d', wire[:8])[0]
-            coded_data = wire[8:]
-
-            one_way_ms = (recv_ts - server_ts) * 1000.0
+            rtt = time.time() - send_ts
             stats.record_recv(len(wire))
-            stats.record_rtt(one_way_ms / 1000.0)  # record_rtt stores seconds
+            stats.record_rtt(rtt)  # record_rtt stores seconds
 
-            decoded = xor_bytes(coded_data, data).decode('utf-8', errors='replace').rstrip('\x00')
-            print("[{}] round={} one-way={:.1f}ms  decoded='{}'".format(
-                LABEL, round_num, one_way_ms, decoded[:40]
+            decoded = xor_bytes(wire, data).decode('utf-8', errors='replace').rstrip('\x00')
+            print("[{}] round={} rtt={:.1f}ms  decoded='{}'".format(
+                LABEL, round_num, rtt * 1000, decoded[:40]
             ))
 
         except socket.timeout:
@@ -91,6 +82,7 @@ def run_terminal(server_ip, term_ip, msg):
         round_num += 1
         time.sleep(1.0)   # pace rounds so server can keep up
 
+    send_socket.close()
     listen_socket.close()
     print("[{}] Duration elapsed, shutting down.".format(LABEL))
     stats.save(STATS_FILE)

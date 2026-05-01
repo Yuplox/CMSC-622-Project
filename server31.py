@@ -65,15 +65,9 @@ def run_server(host='0.0.0.0', port=9000):
             payload_B    = clients[addresses[1]]
             combined     = xor_bytes(payload_A, payload_B)
 
-            # Prepend an 8-byte server send-timestamp (big-endian double) so
-            # each terminal can compute true one-way multicast latency instead
-            # of round-trip time that includes waiting for the other terminal.
-            send_ts = time.time()
-            wire = struct.pack('!d', send_ts) + combined
-
-            server_socket.sendto(wire, multicast_group)
-            stats.record_repair_sent(len(wire))
-            print("[server31] XOR'd and broadcast {} bytes".format(len(wire)))
+            server_socket.sendto(combined, multicast_group)
+            stats.record_repair_sent(len(combined))
+            print("[server31] XOR'd and broadcast {} bytes".format(len(combined)))
 
             clients.clear()
 
