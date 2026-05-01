@@ -2,8 +2,9 @@ from mininet.net import Mininet
 from mininet.link import TCLink
 from mininet.log import setLogLevel
 from mininet.cli import CLI
-from shared import SatelliteTopo
 import sys
+
+from shared import *
 
 def run(useCase):
     setLogLevel('info')
@@ -14,7 +15,7 @@ def run(useCase):
     elif useCase == '3.2':
         terminalCount = 10
 
-    net = Mininet(topo=SatelliteTopo(10, 100, '250ms', 1, terminalCount), link=TCLink)
+    net = Mininet(topo=SatelliteTopo(BASE_BW_USER, BASE_BW_FEED, BASE_DELAY, BASE_LOSS, terminalCount), link=TCLink)
     net.start()
 
     server = net.get('ser0')
@@ -26,7 +27,7 @@ def run(useCase):
         termB_ip  = termB.IP()
 
         termA.cmd(f'python3 -u terminal_nc.py {termA_ip} {termB_ip} 0 > term_nc_A.log 2>&1 &')
-        termB.cmd(f'python3 -u terminal_nc.py {termB_ip} {termA_ip} 0 > term_nc_B.log 2>&1 &')
+        termB.cmd(f'python3 -u terminal_nc.py {termB_ip} {termA_ip} 1 > term_nc_B.log 2>&1 &')
 
 
     elif useCase == '3.1':
@@ -49,17 +50,10 @@ def run(useCase):
         for i in range(terminalCount):
             terminals.append(net.get(f'term{i}'))
             terminals[i].cmd(
-                f'python3 -u terminal32.py {server_ip} {term.IP()} '
-                f'> term-{i}-32.log 2>&1 &'
+                f'python3 -u terminal32.py {server_ip} {terminals[i].IP()} {i} > term32-{i}.log 2>&1 &'
             )
 
-        # Args: SERVER_IP  TERMINAL_IP  NACK_INTERVAL  NACK_WINDOW  LABEL
         server.cmd(f'python3 -u server32.py {server_ip} > server32.log 2>&1 &')
-
-        for term in terminals:
-            term.cmd(
-                
-            )
 
     CLI(net)
     net.stop()

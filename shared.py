@@ -8,11 +8,12 @@ from mininet.topo import Topo
 
 # Shared variables
 MULTICAST_IP = '224.0.0.1'
-MULTICAST_PORT = 1000
+MULTICAST_PORT = 10000
 MULTICAST_GROUP = (MULTICAST_IP, MULTICAST_PORT)
 SERVER_PORT = 9000
 SERVER_NACK_PORT = 9001
 CLIENT_PORT = 8000
+
 
 TTL = 4                 # Packets should never have more than 4 hops in our topology
 SOCK_TIMEOUT = 0.01     # A short timeout is used to prevent sockets from blocking too long
@@ -20,11 +21,21 @@ RESPONSE_TIMEOUT = 2    # The rtt is about 1 second so responses should be recei
 BUFF_SIZE = 1024        # Packets should never be larger than 1024 bytes
 DURATION = 30           # Each simulation lasts 30 seconds
 WINDOW_SIZE = 50        # Keep the last 50 payloads for network coding
+MAX_HOLD_TIME = 0.05    # Max time to keep packets in the coding queue
+SLEEP_INTERVAL = 0.25   # Time between sending packets
+SEQUENCE_START = 1      # The first number of all sequences
+NACK_AGGREGATION = 1    # Time waited to callect NACK packets
+
+# Message types
 MSG_DATA = 1            # Identifies a packet as non-coded
 MSG_CODED = 2           # Identifies a packet as coded
 MSG_NACK = 3            # Identifies a NACK packet
-MAX_HOLD_TIME = 0.05    # Max time to keep packets in the coding queue
-SLEEP_INTERVAL = 0.25   # Time between sending packets
+
+# Default topology
+BASE_BW_USER = 10
+BASE_BW_FEED = 100
+BASE_DELAY = '250ms'
+BASE_LOSS = 1
 
 class SatelliteTopo(Topo):
     def build(self, bandwidth, feedBandwidth, delay, loss, termCount=2):
@@ -61,19 +72,20 @@ class Sequence:
     def curr_val(self):
         return self._seq_num
 
-# Contains a single sequence number from the sending terminal
+# Contains a single sequence number from the sending terminal (3.1)
 class TerminalProtocol:
     HEADER_FORMAT = '!I'
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 
     def __init__(self):
-        self.seq = Sequence()
+        self.seq = Sequence(SEQUENCE_START)
 
     def pack_data(self, payload: bytes) -> bytes:
         seq_num = self.seq.next_val()
         header = struct.pack(TerminalProtocol.HEADER_FORMAT, message_type, seq_num)
         return header + payload
 
+    @staticmethod
     def unpack_data(packet: bytes):
         header_bytes = packet[:TerminalProtocol.HEADER_SIZE]
         payload = packet[TerminalProtocol.HEADER_SIZE:]
@@ -82,15 +94,17 @@ class TerminalProtocol:
         seq_num = struct.unpack(TerminalProtocol.HEADER_FORMAT, header_bytes)
         return seq_num, payload
 
-# Contains the sequence numbers of the two packets that were combined
+# Contains the sequence numbers of the two packets that were combined (3.1)
 class ServerProtocol:
     HEADER_FORMAT = '!II'
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 
+    @staticmethod
     def pack_data(seq_nums: list, payload: bytes) -> bytes:
         header = struct.pack(ServerProtocol.HEADER_FORMAT, seq_nums[0], seq_nums[1])
         return header + payload
 
+    @staticmethod
     def unpack_data(packet: bytes):
         header_bytes = packet[:ServerProtocol.HEADER_SIZE]
         payload = packet[ServerProtocol.HEADER_SIZE:]
@@ -99,25 +113,101 @@ class ServerProtocol:
         seq_nums = struct.unpack(ServerProtocol.HEADER_FORMAT, header_bytes)
         return seq_nums, payload
 
-# Contains a variable number of sequence numbers
+# Protocol for all Reliable Multicast packets (3.2)
 class CodingProtocol:
     HEADER_FORMAT = '!BI'
+    HEADER_FORMAT_NACK = '!I'
+    HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
+    HEADER_SIZE_NACK = struct.calcsize(HEADER_FORMAT_NACK)
 
-    def pack_data(count: int, recipes: list, payload: bytes) -> bytes:
-        outer_prefix = struct.pack(CodingProtocol.HEADER_FORMAT, MSG_CODED, count)
-        recursively_packed_data = CodingProtocol.recursive_header(count, recipes, payload)
-        return outer_prefix + recursively_packed_data
+    def __init__(self):
+        self.seq = Sequence(SEQUENCE_START)
 
-    def recursive_pack(count: int, recipes: list, payload: bytes) -> bytes:
-        if count <= 0 or not recipes:
-            return payload
-            
-        coeff, seq_id = recipes[0]
-        current_header = struct.pack(CodingProtocol.HEADER_FORMAT, coeff, seq_id)
+    # Packs a non coded data message
+    def pack_data(self, payload: bytes) -> bytes:
+        header = struct.pack(CodingProtocol.HEADER_FORMAT, MSG_DATA, self.seq.next_val())
+        return header + payload
 
-        return current_header + CodingProtocol.recursive_header(count - 1, recipes[1:], payload)    
+    # Packs a coded data message
+    @staticmethod
+    def pack_coded_data(recipes: list[tuple], payload: bytes) -> bytes:
+        outer_header = struct.pack(CodingProtocol.HEADER_FORMAT, MSG_CODED, len(recipes))
+        
+        inner_header = b""
+        for coeff, seq_id in recipes:
+            inner_header += struct.pack(CodingProtocol.HEADER_FORMAT, coeff, seq_id)
+        
+        return outer_header + inner_header + payload
+
+    # Packs a NACK message with provided seq_ids
+    @staticmethod
+    def pack_nack(seq_ids: list[int]):
+        outer_header = struct.pack(CodingProtocol.HEADER_FORMAT, MSG_NACK, len(seq_ids))
+        
+        inner_header = b""
+        for seq_id in seq_ids:
+            inner_header += struct.pack(CodingProtocol.HEADER_FORMAT_NACK, seq_id)
+        
+        return outer_header + inner_header
+
+    # Returns the msg_type of a packet
+    @staticmethod
+    def check_msg(packet: bytes) -> int:
+        outer_header = packet[:CodingProtocol.HEADER_SIZE]
+        msg_type, _ = struct.unpack(CodingProtocol.HEADER_FORMAT, outer_header)
+        return msg_type
+    
+    # Unpacks a non coded data message
+    @staticmethod
+    def unpack_data(packet: bytes) -> tuple[int, bytes]:
+        header = packet[:CodingProtocol.HEADER_SIZE]
+        payload = packet[CodingProtocol.HEADER_SIZE:]
+
+        _, seq_id = struct.unpack(CodingProtocol.HEADER_FORMAT, header)
+        return (seq_id, payload)
+    
+    # Unpacks a coded data message
+    @staticmethod
+    def unpack_coded_data(packet: bytes) -> tuple[dict[int, int], list[int], bytes]:
+        outer_header = packet[:CodingProtocol.HEADER_SIZE]
+        payload = packet[CodingProtocol.HEADER_SIZE:]
+
+        _, count = struct.unpack(CodingProtocol.HEADER_FORMAT, outer_header)
+
+        # Extract all sequence ids and coefficients
+        coded_dict = {}
+        for i in range(count):
+            inner_header = payload[:CodingProtocol.HEADER_SIZE]
+            payload = payload[CodingProtocol.HEADER_SIZE:]
+
+            coeff, seq_id = struct.unpack(CodingProtocol.HEADER_FORMAT, inner_header)
+            coded_dict[seq_id] = coeff
+        
+        return (coded_dict, list(coded_dict.keys()), payload)
+    
+    # Unpacks a NACK message
+    @staticmethod
+    def unpack_nack(packet: bytes) -> list[int]:
+        outer_header = packet[:CodingProtocol.HEADER_SIZE]
+        payload = packet[CodingProtocol.HEADER_SIZE:]
+
+        _, count = struct.unpack(CodingProtocol.HEADER_FORMAT, outer_header)
+
+        # Extract all sequence ids
+        seq_ids = []
+        for i in range(count):
+            inner_header = payload[:CodingProtocol.HEADER_SIZE_NACK]
+            payload = payload[CodingProtocol.HEADER_SIZE_NACK:]
+
+            seq_id, = struct.unpack(CodingProtocol.HEADER_FORMAT_NACK, inner_header)
+            seq_ids.append(seq_id)
+        
+        return seq_ids
 
 
+
+
+# A payload with GPS coords and a timestamp
 class GPSPayload:
     PAYLOAD_FORMAT = '!ffd'
 
@@ -137,7 +227,7 @@ class GPSPayload:
         
         return struct.pack(GPSPayload.PAYLOAD_FORMAT, lat, lon, timestamp)
         
-    def unpack_data(payload) -> tuple[float, float, int]:
+    def unpack_data(payload) -> tuple[float, float, float]:
         return struct.unpack(GPSPayload.PAYLOAD_FORMAT, payload)
 
 
@@ -150,9 +240,9 @@ class SlidingWindow:
     def add(self, seq_num: int, payload: bytes):
         self.buffer[seq_num] = payload
         
-        # If we exceed the window size, remove the oldest entry
+        # Remove the lowest sequence number if buffer is full
         if len(self.buffer) > self.max_size:
-            oldest_seq = next(iter(self.buffer))
+            oldest_seq = min(self.buffer.keys())
             self.buffer.pop(oldest_seq)
 
     def get_and_remove(self, seq_num: int) -> bytes:
@@ -161,6 +251,35 @@ class SlidingWindow:
     def size(self) -> int:
         return len(self.buffer)
 
+    def __contains__(self, seq_num: int) -> bool:
+        return seq_num in self.buffer
+
+    def __getitem__(self, seq_num: int) -> bytes:
+        return self.buffer[seq_num]
+
+class RepairWindow:
+    def __init__(self, max_groups: int):
+        self.max_groups = max_groups
+        self.buffer = {}  # dict to store {frozenset(seq_nums): [(coeffs, payload), ...]}
+
+    def add(self, group_key: frozenset, coeffs: dict, payload: bytes):
+        if group_key not in self.buffer:
+            self.buffer[group_key] = []
+        self.buffer[group_key].append((coeffs, payload))
+        
+        # Evict the oldest group based on the lowest sequence number within the sets
+        if len(self.buffer) > self.max_groups:
+            # Finds the key (frozenset) that contains the absolute lowest sequence number
+            oldest_key = min(self.buffer.keys(), key=lambda k: min(k))
+            self.buffer.pop(oldest_key)
+
+    def get(self, group_key: frozenset, default=None):
+        if default is None:
+            default = []
+        return self.buffer.get(group_key, default)
+        
+    def remove(self, group_key: frozenset):
+        self.buffer.pop(group_key, None)
 
 def xor_bytes(b1, b2):
     # Pad the shorter byte string with null bytes
@@ -171,6 +290,7 @@ def xor_bytes(b1, b2):
     return bytes(x ^ y for x, y in zip(b1, b2))
 
 
+# Setup a basic UDP socket
 def setup_socket(host, port) -> socket.socket:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -179,15 +299,18 @@ def setup_socket(host, port) -> socket.socket:
     return sock
 
 
+# Set TTL for multicast
 def setup_multicast_server(sock: socket.socket):
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, struct.pack('b', TTL))
 
 
+# Have a socket join a multicast group
 def setup_multicast_client(sock: socket.socket, terminal_ip, multicast_ip):
     mreq = struct.pack('4s4s', socket.inet_aton(multicast_ip), socket.inet_aton(terminal_ip))
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
 
 
+# Convert list of IP:ID strings to a dict
 def terminals_to_dict(terminals):
     parsed_terminals = {}
     for term in terminals:

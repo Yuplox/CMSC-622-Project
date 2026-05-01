@@ -37,23 +37,12 @@ from mininet.net import Mininet
 from mininet.link import TCLink
 from mininet.log import setLogLevel
 
-from shared import SatelliteTopo
+from shared import *
 
-# ── Experiment parameters ──────────────────────────────────────────────────────
-
-# How long each individual experiment runs (seconds).
-# Longer = more stable averages; shorter = faster overall run.
-DEFAULT_DURATION = 30
-
-# Mininet topology base parameters (match existing run.py)
-BASE_BW_USER   = 10     # Mbps  terminal <-> satellite
-BASE_BW_FEED   = 100    # Mbps  satellite <-> gateway
-BASE_DELAY     = '250ms'
-BASE_LOSS      = 1      # %
 
 # Jamming scenario overrides
-JAM_BW_USER    = 2      # Mbps  — heavily degraded user link
-JAM_LOSS       = 30     # %     — simulates severe RF interference
+JAM_BW_USER = 2
+JAM_LOSS = 30
 
 # DDoS: attacker sends this many packets/second at the server
 DDOS_FLOOD_RATE = 5000
@@ -61,8 +50,7 @@ DDOS_FLOOD_RATE = 5000
 # Where each process writes its stats JSON
 STATS_DIR = '/tmp/satcom_stats'
 
-# ── Scenario definitions ────────────────────────────────────────────────────────
-
+# All scenarios
 SCENARIOS = [
     {
         'name':    'control',
@@ -93,27 +81,28 @@ SCENARIOS = [
     },
 ]
 
+# All use cases
 USE_CASES = [
     {'name': 'control_nc', 'label': 'No Coding (control)'},
     {'name': 'use_case_31', 'label': 'Use Case 3.1 (XOR relay)'},
     {'name': 'use_case_32', 'label': 'Use Case 3.2 (GF multicast)'},
 ]
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
 
+# Create stats folder if it does not exist
 def ensure_stats_dir():
     if not os.path.exists(STATS_DIR):
         os.makedirs(STATS_DIR)
 
 
+# Create a path to stats file
 def stats_path(scenario_name, use_case_name, role):
-    # type: (str, str, str) -> str
-    fname = '{}_{}_{}.json'.format(scenario_name, use_case_name, role)
+    fname = f"{scenario_name}_{use_case_name}_{role}.json"
     return os.path.join(STATS_DIR, fname)
 
 
+# Load json from stats file at path
 def load_stats(path):
-    # type: (str) -> dict
     if not os.path.exists(path):
         return {}
     try:
@@ -122,28 +111,6 @@ def load_stats(path):
     except Exception:
         return {}
 
-
-def env_for(scenario_name, use_case_name, role, duration, extra=None):
-    # type: (str, str, str, int, dict) -> dict
-    """Build the env dict passed to a Mininet host command."""
-    sf = stats_path(scenario_name, use_case_name, role)
-    e = {
-        'STATS_FILE': sf,
-        'DURATION':   str(duration),
-        'PYTHONPATH': os.getcwd(),
-    }
-    if extra:
-        e.update(extra)
-    return e
-
-
-def env_str(env_dict):
-    # type: (dict) -> str
-    """Convert env dict to a shell export prefix string."""
-    parts = []
-    for k, v in env_dict.items():
-        parts.append('{}="{}"'.format(k, v))
-    return ' '.join(parts)
 
 
 def wait_for_files(paths, timeout=5):
@@ -156,97 +123,63 @@ def wait_for_files(paths, timeout=5):
         time.sleep(0.5)
 
 
-# ── No-coding control: plain unicast terminal (no server) ─────────────────────
-
+# No-coding
 def run_control_nc(net, scenario, duration):
-    # type: (object, dict, int) -> dict
-    """
-    Baseline with no network coding.
-    TermA and TermB each independently send UDP packets to each other
-    via the server (which just echoes back — no XOR).
-    We measure raw bytes on the wire.
-    """
+    # Get scenario name
     sname = scenario['name']
-    server = net.get('ser0')
+
+    # Get info on terminals
     termA  = net.get('term0')
     termB  = net.get('term1')
-
-    server_ip = server.IP()
     termA_ip  = termA.IP()
     termB_ip  = termB.IP()
 
-    # Use a trivial echo server
-    echo_stats = stats_path(sname, 'control_nc', 'server')
+    # Create stat paths
     term_a_stats = stats_path(sname, 'control_nc', 'termA')
     term_b_stats = stats_path(sname, 'control_nc', 'termB')
 
-    server_env = env_str({
-        'STATS_FILE': echo_stats,
-        'DURATION':   str(duration),
-        'PYTHONPATH': '.',
-    })
-    termA_env = env_str({
-        'STATS_FILE': term_a_stats,
-        'DURATION':   str(duration),
-        'LABEL':      'termA_nc',
-        'PYTHONPATH': '.',
-    })
-    termB_env = env_str({
-        'STATS_FILE': term_b_stats,
-        'DURATION':   str(duration),
-        'LABEL':      'termB_nc',
-        'PYTHONPATH': '.',
-    })
+    # Run simulations
+    termA.cmd(f'python3 -u terminal_nc.py {termA_ip} {termB_ip} 0 {term_a_stats}> /tmp/term_nc_A.log 2>&1 &')
+    termB.cmd(f'python3 -u terminal_nc.py {termB_ip} {termA_ip} 1 {term_b_stats}> /tmp/term_nc_B.log 2>&1 &')
 
-    server.cmd('{} python3 -u server_nc.py {} > /tmp/nc_server.log 2>&1 &'.format(
-        server_env, server_ip))
-    time.sleep(0.5)
-    termA.cmd(('{} python3 -u terminal_nc.py {} {} "Hello from A" '
-               '> /tmp/nc_termA.log 2>&1 &').format(termA_env, server_ip, termA_ip))
-    termB.cmd(('{} python3 -u terminal_nc.py {} {} "Hello from B" '
-               '> /tmp/nc_termB.log 2>&1 &').format(termB_env, server_ip, termB_ip))
-
-    time.sleep(duration + 3)
+    # Wait for them to complete
+    time.sleep(DURATION + 3)
     wait_for_files([term_a_stats, term_b_stats])
 
+    # Collect stats
     sA = load_stats(term_a_stats)
     sB = load_stats(term_b_stats)
-    ss = load_stats(echo_stats)
     return aggregate(ss, [sA, sB])
 
 
+# Use case 3.1
 def run_use_case_31(net, scenario, duration):
-    # type: (object, dict, int) -> dict
+    # Get scenario name
     sname = scenario['name']
+
+    # Get info on terminals
     server = net.get('ser0')
     termA  = net.get('term0')
     termB  = net.get('term1')
-
     server_ip = server.IP()
     termA_ip  = termA.IP()
     termB_ip  = termB.IP()
 
+    # Create stat paths
     srv_stats  = stats_path(sname, 'use_case_31', 'server')
     termA_stats = stats_path(sname, 'use_case_31', 'termA')
     termB_stats = stats_path(sname, 'use_case_31', 'termB')
 
-    server_env = env_str({'STATS_FILE': srv_stats,   'DURATION': str(duration), 'PYTHONPATH': '.'})
-    termA_env  = env_str({'STATS_FILE': termA_stats, 'DURATION': str(duration),
-                          'LABEL': 'termA31', 'PYTHONPATH': '.'})
-    termB_env  = env_str({'STATS_FILE': termB_stats, 'DURATION': str(duration),
-                          'LABEL': 'termB31', 'PYTHONPATH': '.'})
+    # Run simulations
+    server.cmd(f'python3 -u server31.py {server_ip} {termA_ip}:0 {termB_ip}:1 {srv_stats} > /tmp/server31.log 2>&1 &')
+    termA.cmd(f'python3 -u terminal31.py {server_ip} {termA_ip} 0 {termA_stats} > /tmp/term31_A.log 2>&1 &')
+    termB.cmd(f'python3 -u terminal31.py {server_ip} {termB_ip} 1 {termA_stats} > /tmp/term31_B.log 2>&1 &')
 
-    server.cmd('{} python3 -u server31.py {} > /tmp/31_server.log 2>&1 &'.format(
-        server_env, server_ip))
-    time.sleep(0.5)
-    termA.cmd(('{} python3 -u terminal31.py {} {} "Hello from A" '
-               '> /tmp/31_termA.log 2>&1 &').format(termA_env, server_ip, termA_ip))
-    termB.cmd(('{} python3 -u terminal31.py {} {} "Hello from B" '
-               '> /tmp/31_termB.log 2>&1 &').format(termB_env, server_ip, termB_ip))
-
+    # Wait for them to complete
     time.sleep(duration + 3)
     wait_for_files([termA_stats, termB_stats])
 
+    # Collect stats
     sA = load_stats(termA_stats)
     sB = load_stats(termB_stats)
     ss = load_stats(srv_stats)
@@ -280,9 +213,11 @@ def run_use_case_32(net, scenario, duration):
         term.cmd('{} python3 -u terminal32.py {} {} > /tmp/32_term{}.log 2>&1 &'.format(
             term_env, server_ip, term_ip, i))
 
-    time.sleep(duration + 3)
+    # Wait for them to complete
+    time.sleep(DURATION + 3)
     wait_for_files(term_stats_paths)
 
+    # Collect stats
     terminal_stats = [load_stats(p) for p in term_stats_paths]
     ss = load_stats(srv_stats)
     return aggregate(ss, terminal_stats)
@@ -446,8 +381,7 @@ def run_experiment(duration):
     return results
 
 
-# ── CSV + table output ─────────────────────────────────────────────────────────
-
+# CSV Columns
 COLUMNS = [
     ('scenario',        'Scenario',        16),
     ('use_case',        'Use Case',        28),
@@ -461,18 +395,16 @@ COLUMNS = [
 
 
 def write_csv(results, path):
-    # type: (list, str) -> None
     fieldnames = [c[0] for c in COLUMNS]
     with open(path, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for row in results:
             writer.writerow({k: row.get(k, '') for k in fieldnames})
-    print("\nResults saved to {}".format(path))
+    print(f"\nResults saved to {path}")
 
 
 def print_table(results):
-    # type: (list) -> None
     # Build header
     header = '  '.join(label.ljust(width) for _, label, width in COLUMNS)
     sep    = '  '.join('-' * width       for _, _,     width in COLUMNS)
@@ -499,30 +431,16 @@ def print_table(results):
     print('=' * len(sep))
 
 
-# ── Entry point ────────────────────────────────────────────────────────────────
-
 def main():
-    parser = argparse.ArgumentParser(description='SatCom network coding experiments')
-    parser.add_argument('--duration', type=int, default=DEFAULT_DURATION,
-                        help='Seconds per experiment run (default {})'.format(DEFAULT_DURATION))
-    parser.add_argument('--out', default='results.csv',
-                        help='Output CSV path (default results.csv)')
-    args = parser.parse_args()
-
     if os.geteuid() != 0:
         print("ERROR: experiment.py must be run as root (sudo).")
         sys.exit(1)
 
-    print("Starting experiments: {} scenarios x {} use cases = {} runs".format(
-        len(SCENARIOS), len(USE_CASES), len(SCENARIOS) * len(USE_CASES)
-    ))
-    print("Duration per run: {}s  |  Estimated total: ~{}min".format(
-        args.duration,
-        round(len(SCENARIOS) * len(USE_CASES) * (args.duration + 10) / 60, 1)
-    ))
+    print(f"Starting experiments: {len(SCENARIOS)} scenarios x {len(USE_CASES)} use cases = {len(SCENARIOS) * len(USE_CASES)} runs")
+    print(f"Duration per run: {DUARTION}s")
 
-    results = run_experiment(args.duration)
-    write_csv(results, args.out)
+    results = run_experiment(DURATION)
+    write_csv(results, "experiment.csv")
     print_table(results)
 
 

@@ -98,7 +98,12 @@ def run_server(server_ip, terminals, label="server31"):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print("Usage: python3 server31.py SERVER_IP [LIST_OF_TERMINALS]")
+    if len(sys.argv) < 4:
+        print("Usage: python3 server31.py SERVER_IP TERMINAL_0 TERMINAL_1")
         sys.exit(1)
-    run_server(sys.argv[1], sys.argv[2:])
+
+    # Check for optional stats file
+    if len(sys.argv) == 5:
+        STATS_FILE = sys.argv[4]
+    
+    run_server(sys.argv[1], (sys.argv[2], sys.argv[3]))
