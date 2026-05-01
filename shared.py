@@ -11,6 +11,7 @@ MULTICAST_IP = '224.0.0.1'
 MULTICAST_PORT = 1000
 MULTICAST_GROUP = (MULTICAST_IP, MULTICAST_PORT)
 SERVER_PORT = 9000
+SERVER_NACK_PORT = 9001
 CLIENT_PORT = 8000
 
 TTL = 4                 # Packets should never have more than 4 hops in our topology
@@ -22,6 +23,7 @@ WINDOW_SIZE = 50        # Keep the last 50 payloads for network coding
 MSG_REG = 1             # Identifies a registration packet
 MSG_REG_ACK = 2         # Identifies a registration acknowledgment packet
 MAX_HOLD_TIME = 0.05    # Max time to keep packets in the coding queue
+SLEEP_INTERVAL = 0.25   # Time between sending packets
 
 class SatelliteTopo(Topo):
     def build(self, bandwidth, feedBandwidth, delay, loss, termCount=2):

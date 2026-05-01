@@ -9,7 +9,7 @@ def run(useCase):
     setLogLevel('info')
 
     terminalCount = 0
-    if useCase == '3.1':
+    if useCase in ('nc', '3.1'):
         terminalCount = 2
     elif useCase == '3.2':
         terminalCount = 10
@@ -27,7 +27,7 @@ def run(useCase):
 
         termA.cmd(f'python3 -u terminal_nc.py {termA_ip} {termB_ip} 0 > term_nc_A.log 2>&1 &')
         termB.cmd(f'python3 -u terminal_nc.py {termB_ip} {termA_ip} 0 > term_nc_B.log 2>&1 &')
-        
+
 
     elif useCase == '3.1':
         server_ip = server.IP()

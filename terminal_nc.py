@@ -3,6 +3,7 @@ import signal
 import socket
 import sys
 import time
+from datetime import datetime
 
 from shared import *
 from metrics import Stats
@@ -25,18 +26,21 @@ def run_terminal(termA_ip, termB_ip, term_id, label="term_nc"):
     # Create socket for both sending and receiving
     sock = setup_socket(termA_ip, CLIENT_PORT)
 
+    # Create terminal protocol instance to track sequence numbers
+    protocol = TerminalProtocol()
+
     print(f"[{label}] Starting no coding terminal (duration={DURATION}s)")
 
+    deadline = time.time() + DURATION
     while time.time() < deadline:
 
         # Create packet with random GPS coordinates in payload
         # Header contains the sequence number for the packet
         payload = GPSPayload.pack_data()
         packet = protocol.pack_data(payload)
-        window.add(protocol.seq.curr_val(), payload)
 
         # Send the packet
-        sock.sendto(packet, (termB_IP, CLIENT_PORT))
+        sock.sendto(packet, (termB_ip, CLIENT_PORT))
 
         # Calculate stats
         stats.record_send(len(packet))
