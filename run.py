@@ -13,7 +13,7 @@ def run(useCase):
     if useCase in ('nc', '3.1'):
         terminalCount = 2
     elif useCase == '3.2':
-        terminalCount = 10
+        terminalCount = TERMINAL_COUNT
 
     net = Mininet(topo=SatelliteTopo(BASE_BW_USER, BASE_BW_FEED, BASE_DELAY, BASE_LOSS, terminalCount), link=TCLink)
     net.start()

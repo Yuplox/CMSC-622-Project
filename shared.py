@@ -25,6 +25,7 @@ MAX_HOLD_TIME = 0.05    # Max time to keep packets in the coding queue
 SLEEP_INTERVAL = 0.25   # Time between sending packets
 SEQUENCE_START = 1      # The first number of all sequences
 NACK_AGGREGATION = 1    # Time waited to callect NACK packets
+TERMINAL_COUNT = 10     # Number of terminals for multicast
 
 # Message types
 MSG_DATA = 1            # Identifies a packet as non-coded

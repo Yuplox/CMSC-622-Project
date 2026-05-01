@@ -1,4 +1,3 @@
-import argparse
 import csv
 import json
 import os
@@ -8,6 +7,7 @@ import time
 from mininet.net import Mininet
 from mininet.link import TCLink
 from mininet.log import setLogLevel
+from mininet.clean import cleanup
 
 from shared import *
 
@@ -65,6 +65,11 @@ USE_CASES = [
 def ensure_stats_dir():
     if not os.path.exists(STATS_DIR):
         os.makedirs(STATS_DIR)
+    else:
+        # Delete old stats to prevent cross-contamination
+        for f in os.listdir(STATS_DIR):
+            if f.endswith('.json'):
+                os.remove(os.path.join(STATS_DIR, f))
 
 
 # Create a path to stats file
@@ -96,7 +101,7 @@ def wait_for_files(paths, timeout=5):
 
 
 # No-coding
-def run_control_nc(net, scenario, duration):
+def run_control_nc(net, scenario):
     # Get scenario name
     sname = scenario['name']
 
@@ -121,11 +126,11 @@ def run_control_nc(net, scenario, duration):
     # Collect stats
     sA = load_stats(term_a_stats)
     sB = load_stats(term_b_stats)
-    return aggregate(ss, [sA, sB])
+    return aggregate(None, [sA, sB])
 
 
 # Use case 3.1
-def run_use_case_31(net, scenario, duration):
+def run_use_case_31(net, scenario):
     # Get scenario name
     sname = scenario['name']
 
@@ -148,7 +153,7 @@ def run_use_case_31(net, scenario, duration):
     termB.cmd(f'python3 -u terminal31.py {server_ip} {termB_ip} 1 {termA_stats} > /tmp/term31_B.log 2>&1 &')
 
     # Wait for them to complete
-    time.sleep(duration + 3)
+    time.sleep(DURATION + 3)
     wait_for_files([termA_stats, termB_stats])
 
     # Collect stats
@@ -158,32 +163,28 @@ def run_use_case_31(net, scenario, duration):
     return aggregate(ss, [sA, sB])
 
 
-def run_use_case_32(net, scenario, duration):
+def run_use_case_32(net, scenario):
     # type: (object, dict, int) -> dict
     sname = scenario['name']
-    server = net.get('ser0')
 
+    # Get info on server
+    server = net.get('ser0')
     server_ip = server.IP()
 
+    # Create stat paths
     srv_stats = stats_path(sname, 'use_case_32', 'server')
-    server_env = env_str({'STATS_FILE': srv_stats, 'DURATION': str(duration), 'PYTHONPATH': '.'})
-
-    server.cmd('{} python3 -u server32.py {} > /tmp/32_server.log 2>&1 &'.format(
-        server_env, server_ip))
-    time.sleep(0.5)
-
-    TERM_COUNT = 10
     term_stats_paths = []
-    for i in range(TERM_COUNT):
-        term = net.get('term{}'.format(i))
-        term_ip = term.IP()
-        label = 'term{}_32'.format(i)
-        tstat = stats_path(sname, 'use_case_32', label)
-        term_stats_paths.append(tstat)
-        term_env = env_str({'STATS_FILE': tstat, 'DURATION': str(duration),
-                            'LABEL': label, 'PYTHONPATH': '.'})
-        term.cmd('{} python3 -u terminal32.py {} {} > /tmp/32_term{}.log 2>&1 &'.format(
-            term_env, server_ip, term_ip, i))
+    for i in range(TERMINAL_COUNT):
+        term_stats_paths.append(stats_path(sname, 'use_case_32', f'term_{i}'))
+
+    # Run simulations
+    terminals = []
+    for i in range(TERMINAL_COUNT):
+        terminals.append(net.get(f'term{i}'))
+        terminals[i].cmd(
+            f'python3 -u terminal32.py {server_ip} {terminals[i].IP()} {i} {term_stats_paths[i]}> term32-{i}.log 2>&1 &'
+        )
+    server.cmd(f'python3 -u server32.py {server_ip} {srv_stats}> server32.log 2>&1 &')
 
     # Wait for them to complete
     time.sleep(DURATION + 3)
@@ -195,37 +196,24 @@ def run_use_case_32(net, scenario, duration):
     return aggregate(ss, terminal_stats)
 
 
-def inject_ddos(net, server_ip, scenario, duration):
-    # type: (object, str, dict, int) -> None
-    """Launch attacker from a dedicated host if DDoS scenario."""
+def inject_ddos(net, server_ip, scenario):
     attacker = net.get('atk0')
-    atk_env = env_str({
-        'DURATION':   str(duration),
-        'FLOOD_RATE': str(DDOS_FLOOD_RATE),
-        'LABEL':      'attacker',
-        'PYTHONPATH': '.',
-    })
-    attacker.cmd('{} python3 -u attacker.py {} > /tmp/attacker.log 2>&1 &'.format(
-        atk_env, server_ip))
+    attacker.cmd(f'python3 -u attacker.py {attacker.IP()} {server_ip} > /tmp/attacker.log 2>&1 &')
 
 
 # ── Aggregate stats across server + terminals ──────────────────────────────────
 
 def aggregate(server_stats, terminal_stats_list):
-    # type: (dict, list) -> dict
-    """
-    Combine stats dicts from server and all terminals into one result row.
-
-    bytes_sent      = total bytes on the wire (server sent + terminals sent)
-    retransmissions = repair packets sent by server (or repair rounds for 3.1)
-    mean_rtt_ms     = average across all terminals that have RTT samples
-    loss_rate       = global calculation: total lost / total expected
-    """
-    total_bytes  = server_stats.get('bytes_sent', 0)
-    total_rtx    = server_stats.get('retransmissions', 0)
-    rtt_samples  = []
-    pkts_recv    = 0
-    pkts_exp     = 0
+    if server_stats is not None:
+        total_bytes = server_stats.get('bytes_sent', 0)
+        total_rtx = server_stats.get('retransmissions', 0)
+    else:
+        total_bytes = 0
+        total_rtx = 0
+    
+    rtt_samples = []
+    pkts_recv = 0
+    pkts_exp = 0
 
     for ts in terminal_stats_list:
         if not ts:
@@ -234,7 +222,7 @@ def aggregate(server_stats, terminal_stats_list):
         total_rtx   += ts.get('retransmissions', 0)
         
         # Extract purely data packets
-        data_pkts_recv = ts.get('pkts_received', 0) - ts.get('retransmissions', 0)
+        data_pkts_recv = ts.get('pkts_received', 0)
         pkts_recv   += max(0, data_pkts_recv)
         pkts_exp    += ts.get('pkts_expected', 0)
         
@@ -265,8 +253,6 @@ def aggregate(server_stats, terminal_stats_list):
 # ── Topology builder (adds optional attacker host) ─────────────────────────────
 
 class SatelliteTopoWithAttacker(SatelliteTopo):
-    """Extends SatelliteTopo to optionally add an attacker host."""
-
     def build(self, bandwidth, feedBandwidth, delay, loss, termCount=2, with_attacker=False):
         super(SatelliteTopoWithAttacker, self).build(
             bandwidth, feedBandwidth, delay, loss, termCount
@@ -297,10 +283,10 @@ def run_experiment(duration):
             print("\n[{}/{}] Scenario='{}' UseCase='{}'".format(
                 run_num, total_runs, scenario['label'], use_case['label']
             ))
-            print("        Building topology...")
+            print("Building topology...")
 
             uc_name = use_case['name']
-            term_count = 10 if uc_name == 'use_case_32' else 2
+            term_count = TERMINAL_COUNT if uc_name == 'use_case_32' else 2
             topo = SatelliteTopoWithAttacker(
                 bandwidth     = scenario['bw_user'],
                 feedBandwidth = scenario['bw_feed'],
@@ -316,21 +302,24 @@ def run_experiment(duration):
 
             # Launch DDoS attacker first so it's already flooding when server starts
             if scenario['ddos']:
-                inject_ddos(net, server_ip, scenario, duration)
+                inject_ddos(net, server_ip, scenario)
                 time.sleep(0.5)
 
             # Launch the use case
             uc_name = use_case['name']
             if uc_name == 'control_nc':
-                metrics = run_control_nc(net, scenario, duration)
+                metrics = run_control_nc(net, scenario)
             elif uc_name == 'use_case_31':
-                metrics = run_use_case_31(net, scenario, duration)
+                metrics = run_use_case_31(net, scenario)
             elif uc_name == 'use_case_32':
-                metrics = run_use_case_32(net, scenario, duration)
+                metrics = run_use_case_32(net, scenario)
             else:
                 metrics = {}
 
+            # Clean up old interfaces
             net.stop()
+            cleanup()
+
             # Brief pause between runs so ports fully close
             time.sleep(2)
 
@@ -409,7 +398,7 @@ def main():
         sys.exit(1)
 
     print(f"Starting experiments: {len(SCENARIOS)} scenarios x {len(USE_CASES)} use cases = {len(SCENARIOS) * len(USE_CASES)} runs")
-    print(f"Duration per run: {DUARTION}s")
+    print(f"Duration per run: {DURATION}s")
 
     results = run_experiment(DURATION)
     write_csv(results, "experiment.csv")
