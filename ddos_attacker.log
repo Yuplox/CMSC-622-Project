@@ -1,8 +1,0 @@
-Traceback (most recent call last):
-  File "attacker.py", line 45, in <module>
-    run_attacker(sys.argv[0], sys.argv[1])
-  File "attacker.py", line 17, in run_attacker
-    sock = setup_socket(attacker_ip, 0)
-  File "/home/mininet/shared.py", line 298, in setup_socket
-    sock.bind((host, port))
-socket.gaierror: [Errno -3] Temporary failure in name resolution
