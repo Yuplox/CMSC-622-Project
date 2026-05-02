@@ -128,7 +128,7 @@ class RepairThread(threading.Thread):
                     self.server_sock.sendto(coded_packet, MULTICAST_GROUP)
 
                     # Collect stats
-                    stats.record_send(len(coded_packet)) 
+                    stats.record_repair_send(len(coded_packet)) 
                     
                     coeff_str = ' '.join(f'seq{s}*0x{c:02x}' for c, s in recipes)
                     print(f"[repair] sent: {coeff_str}  ({len(coded_packet)}B)")

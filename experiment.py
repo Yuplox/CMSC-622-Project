@@ -116,8 +116,8 @@ def run_control_nc(net, scenario):
     term_b_stats = stats_path(sname, 'control_nc', 'termB')
 
     # Run simulations
-    termA.cmd(f'python3 -u terminal_nc.py {termA_ip} {termB_ip} 0 {term_a_stats}> /tmp/term_nc_A.log 2>&1 &')
-    termB.cmd(f'python3 -u terminal_nc.py {termB_ip} {termA_ip} 1 {term_b_stats}> /tmp/term_nc_B.log 2>&1 &')
+    termA.cmd(f'python3 -u terminal_nc.py {termA_ip} {termB_ip} 0 {term_a_stats}> {sname}_term_nc_A.log 2>&1 &')
+    termB.cmd(f'python3 -u terminal_nc.py {termB_ip} {termA_ip} 1 {term_b_stats}> {sname}_term_nc_B.log 2>&1 &')
 
     # Wait for them to complete
     time.sleep(DURATION + 3)
@@ -148,9 +148,9 @@ def run_use_case_31(net, scenario):
     termB_stats = stats_path(sname, 'use_case_31', 'termB')
 
     # Run simulations
-    server.cmd(f'python3 -u server31.py {server_ip} {termA_ip}:0 {termB_ip}:1 {srv_stats} > /tmp/server31.log 2>&1 &')
-    termA.cmd(f'python3 -u terminal31.py {server_ip} {termA_ip} 0 {termA_stats} > /tmp/term31_A.log 2>&1 &')
-    termB.cmd(f'python3 -u terminal31.py {server_ip} {termB_ip} 1 {termA_stats} > /tmp/term31_B.log 2>&1 &')
+    server.cmd(f'python3 -u server31.py {server_ip} {termA_ip}:0 {termB_ip}:1 {srv_stats} > {sname}_server31.log 2>&1 &')
+    termA.cmd(f'python3 -u terminal31.py {server_ip} {termA_ip} 0 {termA_stats} > {sname}_term31_A.log 2>&1 &')
+    termB.cmd(f'python3 -u terminal31.py {server_ip} {termB_ip} 1 {termA_stats} > {sname}_term31_B.log 2>&1 &')
 
     # Wait for them to complete
     time.sleep(DURATION + 3)
@@ -164,7 +164,6 @@ def run_use_case_31(net, scenario):
 
 
 def run_use_case_32(net, scenario):
-    # type: (object, dict, int) -> dict
     sname = scenario['name']
 
     # Get info on server
@@ -182,9 +181,9 @@ def run_use_case_32(net, scenario):
     for i in range(TERMINAL_COUNT):
         terminals.append(net.get(f'term{i}'))
         terminals[i].cmd(
-            f'python3 -u terminal32.py {server_ip} {terminals[i].IP()} {i} {term_stats_paths[i]}> term32-{i}.log 2>&1 &'
+            f'python3 -u terminal32.py {server_ip} {terminals[i].IP()} {i} {term_stats_paths[i]}> {sname}_term32-{i}.log 2>&1 &'
         )
-    server.cmd(f'python3 -u server32.py {server_ip} {srv_stats}> server32.log 2>&1 &')
+    server.cmd(f'python3 -u server32.py {server_ip} {srv_stats}> {sname}_server32.log 2>&1 &')
 
     # Wait for them to complete
     time.sleep(DURATION + 3)
@@ -197,8 +196,9 @@ def run_use_case_32(net, scenario):
 
 
 def inject_ddos(net, server_ip, scenario):
+    sname = scenario['name']
     attacker = net.get('atk0')
-    attacker.cmd(f'python3 -u attacker.py {attacker.IP()} {server_ip} > /tmp/attacker.log 2>&1 &')
+    attacker.cmd(f'python3 -u attacker.py {attacker.IP()} {server_ip} > {sname}_attacker.log 2>&1 &')
 
 
 # ── Aggregate stats across server + terminals ──────────────────────────────────

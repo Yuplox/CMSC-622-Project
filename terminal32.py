@@ -152,6 +152,9 @@ def run_terminal(server_ip, term_ip, term_id, label="term32"):
                 elif msg_type == MSG_CODED:
                     coeffs, seq_nums, payload = CodingProtocol.unpack_coded_data(packet)
 
+                    # Collect stats
+                    stats.record_repair_recv(len(packet))
+
                     # Store coded packet for potential recovery
                     key = frozenset(seq_nums)
                     repair_window.add(key, coeffs, payload)
@@ -192,6 +195,11 @@ def run_terminal(server_ip, term_ip, term_id, label="term32"):
     send_socket.close()
     listen_socket.close()
     print(f"[{label}-{term_id}] Duration elapsed, shutting down.")
+
+    # Calculate total expected packets based on the highest sequence number seen
+    if highest_seq >= SEQUENCE_START:
+        total_expected = (highest_seq - SEQUENCE_START) + 1
+        stats.record_expected(total_expected)
 
     if STATS_FILE is not None:
         stats.save(STATS_FILE)
