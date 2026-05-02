@@ -1,0 +1,17 @@
+[term32-6] Starting (duration=30s)
+[term32-6] seq=1 rtt=618.8182830810547ms  lat=-40.64163589477539 lon=164.34556579589844 time=2026-05-01 17:44:27.295323
+[term32-6] seq=2 rtt=629.3566226959229ms  lat=-37.240596771240234 lon=34.54713439941406 time=2026-05-01 17:44:27.545835
+[term32-6] seq=4 rtt=649.4693756103516ms  lat=32.700984954833984 lon=-166.0138397216797 time=2026-05-01 17:44:28.047162
+[term32-6] Missing packets [3], sending NACK...
+[term32-6] seq=6 rtt=669.6591377258301ms  lat=-67.66622924804688 lon=179.15438842773438 time=2026-05-01 17:44:28.548264
+[term32-6] Missing packets [5], sending NACK...
+[term32-6] seq=8 rtt=690.3572082519531ms  lat=66.72303771972656 lon=-125.05570983886719 time=2026-05-01 17:44:29.049342
+[term32-6] Missing packets [7], sending NACK...
+Traceback (most recent call last):
+  File "terminal32.py", line 219, in <module>
+    run_terminal(sys.argv[1], sys.argv[2], sys.argv[3])
+  File "terminal32.py", line 156, in run_terminal
+    stats.record_repair_recv(packet)
+  File "/home/mininet/metrics.py", line 52, in record_repair_recv
+    self.bytes_received  += nbytes
+TypeError: unsupported operand type(s) for +=: 'int' and 'bytes'
