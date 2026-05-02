@@ -1,0 +1,10 @@
+scenario,use_case,bytes_sent,retransmissions,mean_rtt_ms,loss_rate_pct,pkts_received,pkts_expected
+Control,No Coding (control),4600,0,529.3,2.61,224,230
+Control,Use Case 3.1 (XOR relay),4740,105,1361.95,9.91,100,111
+Control,Use Case 3.2 (GF multicast),2520,9,630.6,1.19,1166,1180
+Jamming,No Coding (control),4600,0,646.14,59.13,94,230
+Jamming,Use Case 3.1 (XOR relay),2892,28,1241.92,79.28,23,111
+Jamming,Use Case 3.2 (GF multicast),2520,7,645.73,48.6,605,1177
+DDoS,No Coding (control),4600,0,529.33,3.48,222,230
+DDoS,Use Case 3.1 (XOR relay),4716,104,1357.63,9.91,100,111
+DDoS,Use Case 3.2 (GF multicast),2520,10,632.05,2.12,1154,1179
