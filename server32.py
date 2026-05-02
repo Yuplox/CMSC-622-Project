@@ -14,12 +14,12 @@ from metrics import Stats
 # or import them directly here if they are in separate files.
 
 STATS_FILE = None
+stats = None
 
 # Shared variables
 window_lock   = threading.Lock()
 packet_window = SlidingWindow(WINDOW_SIZE)
 protocol      = CodingProtocol()
-stats         = Stats('server', 'server32')
 stop_event    = threading.Event()
 
 
@@ -140,6 +140,9 @@ class RepairThread(threading.Thread):
 
 def run_server(server_ip, label="server32"):
     signal.signal(signal.SIGTERM, shutdown)
+
+    global stats 
+    stats = Stats('server', '{label}')
 
     print(f"[{label}] starting on {server_ip} (duration={DURATION}s)")
 

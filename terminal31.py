@@ -10,7 +10,7 @@ from shared import *
 from metrics import Stats
 
 STATS_FILE = None
-stats = Stats('server', 'terminal31')
+stats = None
 
 # Ensure STATS_FILE is saved even when terminated early
 def shutdown(signum, frame):
@@ -19,9 +19,12 @@ def shutdown(signum, frame):
     sys.exit(0)
 
 
-def run_terminal(server_ip, term_ip, term_id, label="terminal31"):
+def run_terminal(server_ip, term_ip, term_id, label="term31"):
     signal.signal(signal.SIGTERM, shutdown)
-    
+
+    global stats 
+    stats = Stats('terminal', '{label}_{term_id}')
+
     # Create listen socket and join multicast group
     listen_socket = setup_socket('', MULTICAST_PORT)
     setup_multicast_client(listen_socket, term_ip, MULTICAST_IP)
@@ -90,7 +93,7 @@ def run_terminal(server_ip, term_ip, term_id, label="terminal31"):
                 not_coded_packet, addr = send_socket.recvfrom(BUFF_SIZE)
 
                 # Extract header info and payload
-                _, seq_num, not_coded_payload = TerminalProtocol.unpack_data(not_coded_packet)
+                seq_num, not_coded_payload = TerminalProtocol.unpack_data(not_coded_packet)
                 lat, lon, timestamp = GPSPayload.unpack_data(not_coded_payload)
 
                 # Calculate stats

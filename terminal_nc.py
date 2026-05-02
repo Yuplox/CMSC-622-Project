@@ -9,8 +9,7 @@ from shared import *
 from metrics import Stats
 
 STATS_FILE = None
-
-stats = Stats('terminal', "term_nc")
+stats = None
 
 
 # Ensure STATS_FILE is saved even when terminated early
@@ -22,6 +21,9 @@ def shutdown(signum, frame):
 
 def run_terminal(termA_ip, termB_ip, term_id, label="term_nc"):
     signal.signal(signal.SIGTERM, shutdown)
+
+    global stats 
+    stats = Stats('terminal', '{label}_{term_id}')
 
     # Create socket for both sending and receiving
     sock = setup_socket(termA_ip, CLIENT_PORT)

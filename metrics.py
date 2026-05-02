@@ -1,25 +1,4 @@
-"""
-metrics.py — Lightweight stats collector for use case experiments.
 
-Each process (server or terminal) creates a Stats object, increments counters
-as it sends/receives packets, then calls save(path) at shutdown to write a
-JSON file the experiment runner can read.
-
-Tracked values
-──────────────
-  bytes_sent        total bytes sent over the wire (headers + payload)
-  bytes_received    total bytes received over the wire
-  pkts_sent         total DATA packets sent
-  pkts_received     total DATA packets received
-  pkts_expected     total packets the terminal expected to receive (seq-number-based)
-  retransmissions   repair packets sent (server) / repair packets received (terminal)
-  rtt_samples       list of one-way RTT samples in seconds (send-ts embedded in payload)
-
-Derived at report time
-──────────────────────
-  loss_rate         = max(0, pkts_expected - pkts_received) / pkts_expected
-  mean_rtt          = mean(rtt_samples)
-"""
 
 import json
 import os

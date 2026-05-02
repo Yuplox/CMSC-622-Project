@@ -10,7 +10,7 @@ from shared import *
 from metrics import Stats
 
 STATS_FILE = None
-stats = Stats('server', 'server31')
+stats = None
 
 # Ensure STATS_FILE is saved even when terminated early
 def shutdown(signum, frame):
@@ -21,6 +21,9 @@ def shutdown(signum, frame):
 
 def run_server(server_ip, terminals, label="server31"):
     signal.signal(signal.SIGTERM, shutdown)
+
+    global stats 
+    stats = Stats('server', '{label}')
 
     terminals = terminals_to_dict(terminals)
 

@@ -12,11 +12,11 @@ from metrics import Stats
 
 
 STATS_FILE = None
+stats = None
 
 # Give enough time for response to arrive before sending another NACK
 NACK_COOLDOWN = NACK_AGGREGATION + 1
 
-stats = Stats('terminal', 'terminal32')
 
 
 # Ensure STATS_FILE is saved even when terminated early
@@ -100,6 +100,9 @@ def try_recover(encoded_seqs, pkt_len, recv_buf, repair_buf, highest_seq, label,
 
 def run_terminal(server_ip, term_ip, term_id, label="term32"):
     signal.signal(signal.SIGTERM, shutdown)
+
+    global stats 
+    stats = Stats('terminal', '{label}_{term_id}')
 
     print(f"[{label}-{term_id}] Starting (duration={DURATION}s)")
     
